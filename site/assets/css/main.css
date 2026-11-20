@@ -63,6 +63,9 @@ h1 em{font-family:var(--serif);font-weight:500;font-style:italic;color:var(--sky
 .pill b{color:var(--text);font-weight:600}
 .pill i{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);flex:none}
 .pill i.stale{background:var(--gold);box-shadow:0 0 8px var(--gold)}
+button.pill{font:inherit;font-size:.85rem;cursor:pointer}
+.fresh-pill{border-color:var(--sky)!important;color:var(--text)!important}
+.fresh-pill:hover{background:rgba(58,107,255,.18)!important}
 
 /* ── секции ── */
 section.band{padding-block:clamp(44px,7vw,84px)}

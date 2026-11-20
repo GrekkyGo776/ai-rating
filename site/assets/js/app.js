@@ -22,6 +22,17 @@
 
   let D = null, H = {}, NORM = {};
 
+  // «Только актуальные»: по умолчанию модели, вышедшие за последние 12 месяцев (выбор запоминается в браузере).
+  const FRESH_KEY = "ai-rating-fresh", FRESH_DAYS = 365;
+  let FRESH = true, CUTOFF = "";
+  try { FRESH = localStorage.getItem(FRESH_KEY) !== "0"; } catch (e) { /* без памяти */ }
+  const isFresh = (m) => !m.date || m.date >= CUTOFF;
+  const models = () => (FRESH ? D.models.filter(isFresh) : D.models);
+  function setFresh(v) {
+    FRESH = v; try { localStorage.setItem(FRESH_KEY, v ? "1" : "0"); } catch (e) { /* без памяти */ }
+    renderStatus(); renderLeaders(); renderZachet(); renderTasks(); renderTable(); renderCharts();
+  }
+
   // ───────── метрики ─────────
   const metric = {
     eci: (m) => m.eci?.v ?? null,
@@ -89,7 +100,7 @@
     box.innerHTML = TASKS.map((t) => `<button type="button" class="chip" id="task-${t.id}" data-t="${t.id}" aria-pressed="${t.id === curTask}">${esc(t.name)}</button>`).join("");
     box.onclick = (e) => { const b = e.target.closest("button[data-t]"); if (!b) return; curTask = b.dataset.t; renderTasks(); };
     const t = TASKS.find((x) => x.id === curTask);
-    const ranked = D.models.map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score).slice(0, 5);
+    const ranked = models().map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score).slice(0, 5);
     $("#podium").innerHTML = ranked.map(({ m, r }, i) => `<li>
       <span class="n">${i + 1}</span>
       <div class="nm"><b>${esc(m.name)}</b><div class="why"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org)}</span>${
@@ -135,15 +146,15 @@
       about: "Новые модели по дате выхода, если у них уже есть оценки." },
   ];
   function zachetList(z) {
-    if (z.kind === "eci") return D.models.filter((m) => m.eci).sort((a, b) => b.eci.v - a.eci.v).map((m) => ({ m, v: m.eci.v, lo: m.eci.lo, hi: m.eci.hi }));
-    if (z.kind === "arena") return D.models.filter((m) => m.arena[z.sec]).sort((a, b) => b.arena[z.sec].elo - a.arena[z.sec].elo)
+    if (z.kind === "eci") return models().filter((m) => m.eci).sort((a, b) => b.eci.v - a.eci.v).map((m) => ({ m, v: m.eci.v, lo: m.eci.lo, hi: m.eci.hi }));
+    if (z.kind === "arena") return models().filter((m) => m.arena[z.sec]).sort((a, b) => b.arena[z.sec].elo - a.arena[z.sec].elo)
       .map((m) => ({ m, v: m.arena[z.sec].elo, lo: m.arena[z.sec].lo, hi: m.arena[z.sec].hi, votes: m.arena[z.sec].votes }));
     if (z.kind === "cheap") {
       const t = TASKS.find((x) => x.id === "cheap");
-      return D.models.map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score)
+      return models().map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score)
         .map((x) => ({ m: x.m, v: blended(x.m), score: x.r.score }));
     }
-    return D.models.filter((m) => m.date && (m.eci || (m.arena.text && m.arena.text.rank <= 60)))
+    return models().filter((m) => m.date && (m.eci || (m.arena.text && m.arena.text.rank <= 60)))
       .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date }));
   }
   const zVal = (z, x) => z.kind === "eci" ? nf(x.v, 1) : z.kind === "arena" ? nf(x.v, 0) : z.kind === "cheap" ? "$" + money(x.v) : dayLong(x.v);
@@ -226,15 +237,15 @@
 
   // ───────── история (стрелки) ─────────
   function deltaFor(metricKey, id) {
-    const days = Object.keys(H).sort();
+    const days = Object.keys(H).filter((d) => H[d][metricKey]).sort();
     if (days.length < 2) return "";
     const today = days[days.length - 1];
     const t0 = new Date(today); t0.setDate(t0.getDate() - 7);
-    const ref = days.filter((d) => d <= t0.toISOString().slice(0, 10)).pop() || days[0];
-    if (ref === today) return "";
-    const now = H[today]?.[metricKey]?.indexOf(id), then = H[ref]?.[metricKey]?.indexOf(id);
-    if (now == null || now < 0) return "";
-    if (then == null || then < 0) return `<span class="delta up" title="Новая в топ-50 с ${dayLong(ref)}">нов</span>`;
+    const ref = days.filter((d) => d <= t0.toISOString().slice(0, 10)).pop();
+    if (!ref) return "";
+    const now = H[today][metricKey].indexOf(id), then = H[ref][metricKey].indexOf(id);
+    if (now < 0) return "";
+    if (then < 0) return `<span class="delta up" title="Вошла в топ-50 после ${dayLong(ref)}">нов</span>`;
     const d = then - now;
     return d ? `<span class="delta ${d > 0 ? "up" : "down"}" title="Место ${then + 1} → ${now + 1} с ${dayLong(ref)}">${d > 0 ? "▲" : "▼"}${Math.abs(d)}</span>` : "";
   }
@@ -253,7 +264,7 @@
   }
   function renderTable() {
     const q = st.q.trim().toLowerCase();
-    let list = D.models.filter((m) => (!q || m.name.toLowerCase().includes(q) || m.org.toLowerCase().includes(q))
+    let list = models().filter((m) => (!q || m.name.toLowerCase().includes(q) || m.org.toLowerCase().includes(q))
       && (!st.org || m.org === st.org) && (!st.open || m.open === true) && (!st.price || m.price));
     list.sort((a, b) => {
       const va = sortVal(a), vb = sortVal(b);
@@ -262,7 +273,7 @@
     });
     const total = list.length;
     if (!st.all) list = list.slice(0, LIMIT);
-    const secVals = D.models.map((m) => m.arena[st.sec]?.elo).filter(Boolean);
+    const secVals = models().map((m) => m.arena[st.sec]?.elo).filter(Boolean);
     const sMax = Math.max(...secVals), sMin = secVals.sort((a, b) => a - b)[Math.floor(secVals.length * 0.05)] || 0;
     const built = new Date(D.built);
     const label = "Arena · " + SECNAME[st.sec];
@@ -280,10 +291,11 @@
         <td class="c-e r">${m.eci ? `<div class="score"><span class="meter"><i style="width:${eciW}px"></i></span><b title="погрешность ${nf(m.eci.lo, 1)}–${nf(m.eci.hi, 1)}">${nf(m.eci.v, 1)}</b>${deltaFor("eci", m.id)}</div>` : '<span class="na">—</span>'}</td>
         <td class="c-a r" data-label="${esc(label)}">${a ? `<div class="score"><span class="meter"><i style="width:${aW}px"></i></span><b title="${nf(a.votes)} голосов, погрешность ${nf(a.lo)}–${nf(a.hi)}">${nf(a.elo)}</b><span class="rk">#${a.rank}</span>${deltaFor(st.sec, m.id)}</div>` : '<span class="na">нет в разделе</span>'}</td>
         <td class="c-p r">${m.price ? `<span class="price">${money(m.price.in)} <small>/</small> ${money(m.price.out)}</span>` : '<span class="na">—</span>'}</td>
-        <td class="c-d r muted">${dayShort(m.date)}</td>
+        <td class="c-d r muted"${m.dsrc === "arena" ? ' title="Примерно: день первого появления в Arena"' : ""}>${m.dsrc === "arena" ? "≈ " : ""}${dayShort(m.date)}</td>
       </tr>`;
     }).join("") || `<tr><td colspan="6" class="loading">Ничего не нашлось.</td></tr>`;
     $("#count").textContent = `${nf(total)} ${plural(total, "модель", "модели", "моделей")}`;
+    $("#onlyFresh").checked = FRESH;
     $("#moreBox").hidden = st.all || total <= LIMIT;
     $("#more").textContent = `Показать все ${nf(total)}`;
     document.querySelectorAll("thead th[data-k]").forEach((th) => {
@@ -301,6 +313,7 @@
     $("#org").onchange = (e) => { st.org = e.target.value; renderTable(); };
     $("#onlyOpen").onchange = (e) => { st.open = e.target.checked; renderTable(); };
     $("#onlyPrice").onchange = (e) => { st.price = e.target.checked; renderTable(); };
+    $("#onlyFresh").onchange = (e) => setFresh(e.target.checked);
     $("#more").onclick = () => { st.all = true; renderTable(); };
     document.querySelectorAll("thead th[data-k] button").forEach((b) => b.addEventListener("click", () => {
       const k = b.parentElement.dataset.k;
@@ -393,7 +406,7 @@
   }
 
   function renderChartTools() {
-    const inCharts = D.models.filter((m) => m.eci && (m.arena.text || blended(m) > 0));
+    const inCharts = models().filter((m) => m.eci && (m.arena.text || blended(m) > 0));
     const byId = new Map(D.models.map((m) => [m.id, m]));
     for (const id of [...CS.pins]) if (!byId.has(id)) CS.pins.delete(id);
     const orgs = Object.keys(ORGC).filter((o) => inCharts.some((m) => m.org === o));
@@ -401,6 +414,7 @@
     box.innerHTML = `<div class="ct-row">
         <div class="field ct-add"><label for="pinAdd">Подписать</label><input id="pinAdd" list="pinList" placeholder="Claude Opus 5.5, GPT-6.2 Sol…" autocomplete="off"></div>
         <datalist id="pinList">${inCharts.map((m) => `<option value="${esc(m.name)}"></option>`).join("")}</datalist>
+        <label class="toggle" for="freshCharts"><input type="checkbox" id="freshCharts"${FRESH ? " checked" : ""}>за 12 месяцев</label>
         <label class="toggle" for="pinOnly"><input type="checkbox" id="pinOnly"${CS.only ? " checked" : ""}${CS.pins.size ? "" : " disabled"}>только подписанные</label>
         ${CS.pins.size || CS.orgs.size || CS.only ? `<button type="button" class="btn sm" id="pinReset">Сбросить</button>` : ""}
       </div>
@@ -415,12 +429,14 @@
       if (m) { CS.pins.add(m.id); saveCS(); renderCharts(); $("#pinAdd")?.focus(); return; }
       const other = D.models.find((x) => x.name.toLowerCase() === q) || (!exact && D.models.find((x) => x.name.toLowerCase().includes(q)));
       const msg = $("#pinMsg");
-      msg.textContent = other ? `${other.name} нет на графиках: у модели пока нет индекса Epoch. Она есть в таблице выше.` : `Не нашёл «${add.value.trim()}». Попробуйте часть названия, например «Opus».`;
+      msg.textContent = other && FRESH && !isFresh(other) ? `${other.name} вышла больше года назад и скрыта. Нажмите «за 12 месяцев», чтобы показать все модели.` :
+        other ? `${other.name} нет на графиках: у модели пока нет индекса Epoch. Она есть в таблице выше.` : `Не нашёл «${add.value.trim()}». Попробуйте часть названия, например «Opus».`;
       msg.hidden = false;
     };
     add.addEventListener("change", () => tryAdd(true));
     add.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); tryAdd(false); } });
     $("#pinOnly").onchange = (e) => { CS.only = e.target.checked; saveCS(); renderCharts(); };
+    $("#freshCharts").onchange = (e) => setFresh(e.target.checked);
     const reset = $("#pinReset"); if (reset) reset.onclick = () => { CS.pins.clear(); CS.orgs.clear(); CS.only = false; saveCS(); renderCharts(); };
     box.querySelectorAll(".pin").forEach((b) => b.onclick = () => togglePin(b.dataset.id));
     box.querySelectorAll(".org-chip").forEach((b) => b.onclick = () => {
@@ -431,7 +447,7 @@
   function renderCharts() {
     renderChartTools();
     // 1. тесты × люди
-    const p1 = D.models.filter((m) => m.eci && m.arena.text).map((m) => ({ m, x: m.eci.v, y: m.arena.text.elo }));
+    const p1 = models().filter((m) => m.eci && m.arena.text).map((m) => ({ m, x: m.eci.v, y: m.arena.text.elo }));
     if (p1.length > 3) {
       const xs = p1.map((p) => p.x), ys = p1.map((p) => p.y);
       const x0 = Math.floor(Math.min(...xs) / 5) * 5 - 2, x1 = Math.ceil(Math.max(...xs) / 5) * 5 + 2;
@@ -453,7 +469,7 @@
       });
     }
     // 2. сила × цена
-    const p2 = D.models.filter((m) => m.eci && blended(m) > 0).map((m) => ({ m, x: Math.log10(blended(m)), y: m.eci.v }));
+    const p2 = models().filter((m) => m.eci && blended(m) > 0).map((m) => ({ m, x: Math.log10(blended(m)), y: m.eci.v }));
     if (p2.length > 3) {
       const xs = p2.map((p) => p.x), ys = p2.map((p) => p.y);
       const x0 = Math.floor(Math.min(...xs) * 2) / 2 - 0.1, x1 = Math.ceil(Math.max(...xs) * 2) / 2 + 0.1;
@@ -482,8 +498,11 @@
       pill(s.arena?.ok !== false, `Arena: публикация <b>${dayLong(src.arena?.published)}</b>${s.arena?.ok === false ? " · не обновилась" : ""}`),
       pill(s.epoch?.ok !== false, `Epoch: модели по <b>${dayLong(src.epoch?.latest_model)}</b>${s.epoch?.ok === false ? " · не обновился" : ""}`),
       pill(s.openrouter?.ok !== false, `Цены: <b>OpenRouter</b>${s.openrouter?.ok === false ? " · не обновились" : ""}`),
-      `<span class="pill"><b>${nf(D.models.length)}</b> моделей</span>`,
+      `<button type="button" class="pill fresh-pill" id="freshPill" aria-pressed="${FRESH}">${FRESH
+        ? `<b>${nf(models().length)}</b> актуальных из ${nf(D.models.length)} · показать все`
+        : `<b>${nf(D.models.length)}</b> моделей · только за 12 месяцев`}</button>`,
     ].join("");
+    $("#freshPill").onclick = () => setFresh(!FRESH);
     $("#built").textContent = `данные от ${dayLong(D.built)} ${b.getFullYear()}`;
   }
 
@@ -517,6 +536,7 @@
     fetch("data/history.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : {}).catch(() => ({})),
   ]).then(([d, h]) => {
     D = d; H = h || {};
+    CUTOFF = new Date(new Date(D.built).getTime() - FRESH_DAYS * 864e5).toISOString().slice(0, 10);
     buildNorm(); renderStatus(); renderLeaders(); renderTasks(); bindTable(); renderTable(); renderCharts();
     let rt; let lastW = innerWidth;
     addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; renderCharts(); } }, 250); });

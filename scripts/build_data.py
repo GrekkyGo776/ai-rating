@@ -7,7 +7,8 @@
   * OpenRouter — публичный список моделей с ценами.
 
 Шаги:
-  1. fetch — скачать каждый источник в data/cache/<источник>.json.
+  1. fetch — скачать каждый источник в data/cache/<источник>.json (Arena — ещё и полную историю:
+     даты первого появления моделей и места за 60 дней).
      Если источник не ответил, остаётся вчерашний кэш, а в статусе
      появляется пометка «не обновился».
   2. merge — свести кэши в site/data/models.json и дописать снимок
@@ -183,7 +184,46 @@ def fetch_openrouter() -> dict:
     return {"models": models}
 
 
-FETCHERS = {"arena": fetch_arena, "epoch": fetch_epoch, "openrouter": fetch_openrouter}
+# Полная история Arena: когда модель впервые появилась (дата для моделей, которых нет в Epoch и OpenRouter)
+# и места за последние 60 дней (стрелки ▲▼). Файл text_style_control — около 60 МБ, читаем только нужные колонки.
+HIST_SECTIONS = [("text", "text_style_control", "overall"), ("ru", "text_style_control", "russian"),
+                 ("math", "text_style_control", "math"), ("web", "webdev", "overall"), ("vision", "vision", "overall")]
+
+
+def fetch_arena_history() -> dict:
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    first: dict[str, str] = {}
+    snaps: dict[str, dict] = {}
+    tables = {}
+    for _, subset, _ in HIST_SECTIONS:
+        if subset in tables:
+            continue
+        url = f"https://huggingface.co/datasets/{HF_DATASET}/resolve/main/{subset}/full-00000-of-00001.parquet"
+        tables[subset] = pq.read_table(io.BytesIO(http_get(url, timeout=300)),
+                                       columns=["model_name", "category", "leaderboard_publish_date", "rating"])
+    latest = max(str(d) for tb in tables.values() for d in pc.unique(tb["leaderboard_publish_date"]).to_pylist())
+    since = (dt.date.fromisoformat(latest[:10]) - dt.timedelta(days=60)).isoformat()
+    for sid, subset, category in HIST_SECTIONS:
+        tb = tables[subset]
+        rows = tb.filter(pc.equal(tb["category"], category)).to_pylist()
+        best: dict[str, dict[str, float]] = {}
+        for r in rows:
+            d = str(r["leaderboard_publish_date"])[:10]
+            k = key(r["model_name"])
+            if k not in first or d < first[k]:
+                first[k] = d
+            if d >= since:
+                day = best.setdefault(d, {})
+                if r["rating"] > day.get(k, -1e9):
+                    day[k] = r["rating"]
+        for d, day in best.items():
+            snaps.setdefault(d, {})[sid] = [k for k, _ in sorted(day.items(), key=lambda kv: -kv[1])[:50]]
+    return {"latest": latest, "first_seen": first, "snaps": snaps}
+
+
+FETCHERS = {"arena": fetch_arena, "arena_history": fetch_arena_history, "epoch": fetch_epoch, "openrouter": fetch_openrouter}
 
 
 def fetch_all() -> dict:
@@ -254,13 +294,39 @@ def org_name(raw: str) -> str:
     return ORG_NAMES.get(raw.lower(), raw[:1].upper() + raw[1:] if raw else "")
 
 
+def key(name: str) -> str:
+    """Ключ сведения: нормализованное имя с учётом ручных пар из config/aliases.json."""
+    global _ALIAS
+    if _ALIAS is None:
+        pairs = json.loads(ALIASES.read_text(encoding="utf-8")).get("pairs", {}) if ALIASES.exists() else {}
+        _ALIAS = {norm(k): norm(v) for k, v in pairs.items()}
+    n = norm(name)
+    return _ALIAS.get(n, n)
+
+
+_ALIAS: dict | None = None
+
+
+def arena_date(name: str, first_seen: str | None) -> str | None:
+    """Дата для модели, которая есть только в Arena: день первого появления там, но если в названии
+    зашита более ранняя дата (GPT-5.2 Chat (20260210)) — она: модель могли переименовать позже выхода."""
+    m = re.search(r"(20\d{2})(\d{2})(\d{2})", name)
+    named = None
+    if m:
+        try:
+            named = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+        except ValueError:
+            named = None
+    cands = [d for d in (first_seen, named) if d]
+    return min(cands) if cands else None
+
+
 def merge(status: dict | None = None) -> dict:
     arena = json.loads((CACHE / "arena.json").read_text(encoding="utf-8"))
     epoch = json.loads((CACHE / "epoch.json").read_text(encoding="utf-8"))
     orouter = json.loads((CACHE / "openrouter.json").read_text(encoding="utf-8"))
-    aliases = json.loads(ALIASES.read_text(encoding="utf-8")) if ALIASES.exists() else {}
-    alias = {norm(k): norm(v) for k, v in aliases.get("pairs", {}).items()}
-    key = lambda n: alias.get(norm(n), norm(n))  # noqa: E731
+    hist_path = CACHE / "arena_history.json"
+    ahist = json.loads(hist_path.read_text(encoding="utf-8")) if hist_path.exists() else {"first_seen": {}, "snaps": {}}
 
     models: dict[str, dict] = {}
 
@@ -318,7 +384,8 @@ def merge(status: dict | None = None) -> dict:
             "org": m.get("org") or "",
             "cc": m.get("cc") or ORG_COUNTRY.get(m.get("org", ""), ""),
             "open": m.get("open"),
-            "date": m.get("date") or (p or {}).get("created"),
+            "date": m.get("date") or (p or {}).get("created") or arena_date(m.get("aname") or k, ahist["first_seen"].get(k)),
+            "dsrc": "epoch" if m.get("date") else "openrouter" if (p or {}).get("created") else "arena" if ahist["first_seen"].get(k) else None,
             "eci": m.get("eci"),
             "arena": a,
             "price": {"in": p["in"], "out": p["out"]} if p else None,
@@ -329,7 +396,8 @@ def merge(status: dict | None = None) -> dict:
 
     out.sort(key=lambda r: (-(r["eci"] or {}).get("v", 0), -(r["arena"].get("text") or {}).get("elo", 0)))
     now = dt.datetime.now(MSK)
-    status = status or {s: {"ok": True, "fetched": json.loads((CACHE / f"{s}.json").read_text("utf-8")).get("fetched")} for s in FETCHERS}
+    status = status or {s: {"ok": True, "fetched": json.loads((CACHE / f"{s}.json").read_text("utf-8")).get("fetched")}
+                        for s in FETCHERS if (CACHE / f"{s}.json").exists()}
     result = {
         "built": now.isoformat(timespec="minutes"),
         "status": status,
@@ -342,24 +410,27 @@ def merge(status: dict | None = None) -> dict:
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "models.json").write_text(json.dumps(result, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    write_history(out, now.date().isoformat())
+    write_history(out, now.date().isoformat(), ahist.get("snaps", {}))
     matched = sum(1 for r in out if r["eci"] and r["arena"].get("text"))
     print(f"моделей на сайте: {len(out)}; с индексом Epoch и Arena: {matched}; с ценой: {sum(1 for r in out if r['price'])}")
     return result
 
 
-def write_history(models: list[dict], day: str) -> None:
-    """Каждый день — места моделей по главным рейтингам (для стрелок «выросла/упала»)."""
+def write_history(models: list[dict], day: str, arena_snaps: dict) -> None:
+    """Места моделей по дням (для стрелок ▲▼): прошлые публикации Arena плюс сегодняшний снимок,
+    где есть и индекс Epoch. Храним 60 дней."""
     path = OUT / "history.json"
     hist = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    for d, snap in arena_snaps.items():
+        hist.setdefault(d, {}).update(snap)
     snap = {}
     for metric in ("eci", "text", "ru", "math", "web", "vision"):
         val = (lambda r: (r["eci"] or {}).get("v")) if metric == "eci" else (lambda r, s=metric: (r["arena"].get(s) or {}).get("elo"))
         ranked = sorted((r for r in models if val(r) is not None), key=val, reverse=True)[:50]
         snap[metric] = [r["id"] for r in ranked]
     hist[day] = snap
-    for old in sorted(hist)[:-120]:  # храним четыре месяца
-        del hist[old]
+    cutoff = (dt.date.fromisoformat(day) - dt.timedelta(days=60)).isoformat()
+    hist = {d: v for d, v in sorted(hist.items()) if d >= cutoff}
     path.write_text(json.dumps(hist, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 

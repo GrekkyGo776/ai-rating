@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#05070f">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/golos-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=4">
+<link rel="stylesheet" href="assets/css/main.css?v=5">
 </head>
 <body>
 
@@ -68,6 +68,7 @@
       <div class="field"><label for="org">Разработчик</label><select id="org"><option value="">все</option></select></div>
       <label class="toggle" for="onlyOpen"><input type="checkbox" id="onlyOpen">открытые веса</label>
       <label class="toggle" for="onlyPrice"><input type="checkbox" id="onlyPrice">есть цена</label>
+      <label class="toggle" for="onlyFresh"><input type="checkbox" id="onlyFresh" checked>за 12 месяцев</label>
       <span class="count" id="count"></span>
     </div>
     <div class="tbl"><div class="tscroll"><table>
@@ -111,6 +112,7 @@
       <article><h3>Люди · Arena</h3><p>Люди задают вопрос, видят ответы двух неизвестных моделей и выбирают лучший. Из сотен тысяч голосов считается рейтинг Elo. Берём вариант с поправкой на стиль: длинный и нарядный ответ не получает бонуса. Есть отдельные зачёты по русскому языку, математике, коду, сайтам и картинкам.</p><p><a href="https://arena.ai" target="_blank" rel="noopener">arena.ai</a></p></article>
       <article><h3>Цены · OpenRouter</h3><p>Цена API в долларах за миллион токенов: это примерно 700 тысяч русских слов. Для сравнения берём смесь 3 : 1 — три части входа на одну часть выхода. В чат-приложениях с подпиской цены другие.</p><p><a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a></p></article>
       <article><h3>Ничья или отрыв</h3><p>Проценты от самого Elo ничего не значат: важна разница в очках. Разница 20 очков — лидера выбирают в 53 сравнениях из 100, 50 очков — в 57, 100 очков — в 64. Если интервалы погрешности двух моделей пересекаются, это ничья при любой разнице. Отрыв — интервалы не пересекаются, явный отрыв — от 50 очков Elo (или от 5 пунктов индекса Epoch).</p></article>
+      <article><h3>Актуальные модели</h3><p>По умолчанию показываем модели, вышедшие за последние 12 месяцев: старые почти никогда не попадают в верх рейтингов, а графики с ними загромождены. Кнопка «показать все» в шапке возвращает все модели. Дата выхода — из Epoch, иначе из OpenRouter, иначе день первого появления модели в Arena (в таблице с пометкой «≈»).</p></article>
       <article><h3>Режимы и названия</h3><p>У многих моделей есть режимы «думать дольше» (High, Max). Для каждой модели показываем лучший режим. Названия из разных источников сводятся автоматически, сложные случаи — вручную. Модели, которых нет в источнике, показаны с прочерком.</p></article>
       <article><h3>Подбор под задачу</h3><p>Каждый рейтинг переводим в шкалу от 0 до 100: лучшая модель — 100, слабые — около нуля. Потом складываем с весами задачи. Если у модели нет главного для задачи рейтинга, в подборку она не попадает.</p></article>
       <article><h3>Чего здесь нет</h3><p>Российских моделей (GigaChat, YandexGPT) в этих открытых рейтингах нет — их там просто не тестируют. Доступность из России и оплата российской картой тоже не учитываются.</p></article>
@@ -123,6 +125,6 @@
   <div>Сделано на <a href="https://fizmat.guru">fizmat.guru</a> · <span id="built"></span></div>
 </div></footer>
 
-<script src="assets/js/app.js?v=6" defer></script>
+<script src="assets/js/app.js?v=7" defer></script>
 </body>
 </html>
