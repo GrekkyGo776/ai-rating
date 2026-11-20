@@ -11,14 +11,14 @@
 <meta name="theme-color" content="#05070f">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/golos-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=8">
+<link rel="stylesheet" href="assets/css/main.css?v=9">
 </head>
 <body>
 
 <header class="top"><div class="wrap">
   <a class="brand" href="https://fizmat.guru"><img src="favicon.svg" alt="" width="26" height="26">fizmat.guru <span>· ИИ</span></a>
   <nav class="nav" aria-label="Разделы">
-    <a href="#leaders">Лидеры</a><a href="#pick">Подбор</a><a href="#table">Все модели</a><a href="#charts">Графики</a><a href="#how">Как считаем</a>
+    <a href="#leaders">Лидеры</a><a href="#compare">Сравнить</a><a href="#pick">Подбор</a><a href="#table">Все модели</a><a href="#charts">Графики</a><a href="#how">Как считаем</a>
   </nav>
 </div></header>
 
@@ -30,6 +30,7 @@
     <p class="lede">Какая модель сильнее по тестам, какую выбирают люди в слепых сравнениях и сколько она стоит. Только открытые данные, со ссылками на источники.</p>
     <div class="status" id="status"><span class="pill">Загружаю данные…</span></div>
     <div class="period" id="period"></div>
+    <a class="compare-link" href="#compare">Сравнить две модели ↓</a>
   </div>
 </section>
 
@@ -38,9 +39,21 @@
     <div class="sec-head">
       <div class="eyebrow">Сегодня</div>
       <h2 id="h-leaders">Кто впереди <em>в каждом зачёте</em></h2>
-      <p>Первое место в каждом рейтинге и кто идёт следом. Нажмите на карточку — откроется весь зачёт с погрешностями и группами ничьих.</p>
+      <p>Показываем зачёт, если в нём есть результаты актуальных Claude, GPT и Gemini за выбранный период. Нажмите на карточку — откроется весь зачёт с погрешностями и группами ничьих.</p>
     </div>
     <div id="leaderGrid"><div class="loading">Загружаю…</div></div>
+  </div></section>
+
+  <section class="band" id="compare" aria-labelledby="h-compare"><div class="wrap">
+    <div class="sec-head">
+      <h2 id="h-compare">Сравнить <em>две модели</em></h2>
+      <p>Выберите две версии из полного каталога. Под баллами указаны интервалы погрешности, если источник их публикует.</p>
+    </div>
+    <div class="pair-controls">
+      <label for="pairA">Первая модель<select id="pairA"></select></label>
+      <label for="pairB">Вторая модель<select id="pairB"></select></label>
+    </div>
+    <div id="pairResult"></div>
   </div></section>
 
   <section class="band" id="pick" aria-labelledby="h-pick"><div class="wrap">
@@ -60,7 +73,7 @@
     <div class="sec-head">
       <div class="eyebrow">Все модели</div>
       <h2 id="h-table">Полная <em>таблица</em></h2>
-      <p>Нажмите на заголовок колонки, чтобы отсортировать. Колонки «Тесты» и «Arena» переключаются в списках: физика, сложная математика, факты, русский язык, документы и другие.</p>
+      <p>Нажмите на заголовок колонки, чтобы отсортировать. В списках «Тесты» и «Arena» можно выбрать зачёт. Список зависит от того, какие модели участвовали за выбранный период.</p>
     </div>
     <div class="controls">
       <div class="field"><label for="q">Поиск</label><input id="q" type="search" placeholder="Claude, GPT, Qwen…" autocomplete="off"></div>
@@ -115,6 +128,7 @@
       <article><h3>Физика, математика, наука, факты</h3><p>Отдельные тесты из архива Epoch AI: CritPt — задачи уровня научной работы по физике, FrontierMath — новые задачи от математиков, GPQA Diamond — вопросы по естественным наукам уровня аспиранта, SimpleQA Verified — короткие вопросы о фактах (как часто модель выдумывает). Балл — доля верных ответов. У CritPt погрешность не публикуется.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
       <article><h3>Проверка ЕГЭ — наш зачёт</h3><p>Модель проверяет решения второй части ЕГЭ по физике (21–26) по критериям ФИПИ, а мы сравниваем её балл с баллом эксперта. Публикуем только сводные цифры, без работ. Это пилот: замерены две модели, и регламент проверки настраивался на Claude Opus 5.5 — другим моделям он может подходить хуже. Погрешность — 95 % интервал для доли совпадений.</p></article>
       <article><h3>Ничья или отрыв</h3><p>Проценты от самого Elo ничего не значат: важна разница в очках. Разница 20 очков — лидера выбирают в 53 сравнениях из 100, 50 очков — в 57, 100 очков — в 64. Если интервалы погрешности двух моделей пересекаются, это ничья при любой разнице. Отрыв — интервалы не пересекаются, явный отрыв — от 50 очков Elo (или от 5 пунктов индекса Epoch).</p></article>
+      <article><h3>Какие зачёты показываем</h3><p>В каждом общем зачёте и подборке за выбранный период должны участвовать актуальные Claude, GPT и Gemini. Поколение определяем по старшему номеру версии в каталоге, для Claude — отдельно по линейкам Opus, Sonnet, Haiku и Fable. Место участника может быть любым. В парном сравнении доступны и замеры с меньшим числом участников.</p></article>
       <article><h3>Актуальные модели</h3><p>По умолчанию показываем модели, вышедшие за последние 12 месяцев: старые почти никогда не попадают в верх рейтингов, а графики с ними загромождены. В шапке можно выбрать срок — 1, 3, 6, 12 месяцев или все модели. Дата выхода — из Epoch, иначе из OpenRouter, иначе день первого появления модели в Arena (в таблице с пометкой «≈»).</p></article>
       <article><h3>Режимы и названия</h3><p>У многих моделей есть режимы «думать дольше» (High, Max). Для каждой модели показываем лучший режим. Названия из разных источников сводятся автоматически, сложные случаи — вручную. Модели, которых нет в источнике, показаны с прочерком.</p></article>
       <article><h3>Подбор под задачу</h3><p>Каждый рейтинг переводим в шкалу от 0 до 100: лучшая модель — 100, слабые — около нуля. Потом складываем с весами задачи. Если у модели нет главного для задачи рейтинга, в подборку она не попадает.</p></article>
@@ -128,6 +142,6 @@
   <div>Сделано на <a href="https://fizmat.guru">fizmat.guru</a> · <span id="built"></span></div>
 </div></footer>
 
-<script src="assets/js/app.js?v=10" defer></script>
+<script src="assets/js/app.js?v=11" defer></script>
 </body>
 </html>
