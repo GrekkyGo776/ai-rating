@@ -102,40 +102,126 @@
     }</div><p>Баллы — место модели в каждом рейтинге по шкале 0–100.</p>`;
   }
 
-  // ───────── лидеры ─────────
-  function leaderCard(what, list, val, unit, extra = "") {
+  // ───────── ничья или отрыв ─────────
+  // Elo: разница D очков → лидера выбирают в 100/(1+10^(−D/400)) случаях из 100.
+  // Ничья — интервалы погрешности пересекаются; отрыв — не пересекаются; явный отрыв — от 50 очков Elo.
+  const winOf = (d) => Math.round(100 / (1 + 10 ** (-d / 400)));
+  const overlap = (a, b) => a.lo != null && b.hi != null && b.hi >= a.lo;
+  const pts = (n) => `${nf(n, 0)} ${plural(Math.round(n), "очко", "очка", "очков")}`;
+  function verdict(a, b, kind) {
+    const d = a.v - b.v;
+    if (overlap(a, b)) return { cls: "tie", text: "ничья" };
+    if (kind === "eci") return { cls: d >= 5 ? "far" : "lead", text: `${d >= 5 ? "явный отрыв" : "отрыв"} ${nf(d, 1)}` };
+    return { cls: d >= 50 ? "far" : "lead", text: `${d >= 50 ? "явный отрыв" : "отрыв"} ${pts(d)} · выбирают в ${winOf(d)} из 100` };
+  }
+
+  // ───────── лидеры и полные зачёты ─────────
+  const ZACHETS = [
+    { id: "eci", what: "Сильнее всех по тестам", unit: "индекс Epoch", kind: "eci",
+      about: "Индекс Epoch AI: сводная оценка по десяткам сложных тестов — математика, код, наука, рассуждения. Больше — сильнее." },
+    { id: "text", what: "Лучшие ответы в чате", unit: "Elo · Arena, общий зачёт", kind: "arena", sec: "text",
+      about: "Человек задаёт в чате любой вопрос и выбирает лучший из двух текстовых ответов неизвестных моделей. Длина и оформление ответа бонуса не дают. Это не про вёрстку и дизайн — для них зачёт «Сайты и веб-код»." },
+    { id: "ru", what: "Лучше всех по-русски", unit: "Elo · Arena, русский язык", kind: "arena", sec: "ru",
+      about: "Тот же слепой выбор лучшего ответа, но вопросы задают на русском языке." },
+    { id: "math", what: "Математика", unit: "Elo · Arena, математика", kind: "arena", sec: "math",
+      about: "Слепой выбор лучшего ответа на вопросы по математике." },
+    { id: "web", what: "Сайты и веб-код", unit: "Elo · Arena, веб-разработка", kind: "arena", sec: "web",
+      about: "Человек просит сделать сайт или приложение, видит две готовые страницы и выбирает лучшую. Ближе всего к вопросу «кто лучше оформляет и верстает»." },
+    { id: "vision", what: "Зрение: фото и схемы", unit: "Elo · Arena, зрение", kind: "arena", sec: "vision",
+      about: "Вопросы с картинкой: фото, схемы, графики, скриншоты. Слепой выбор лучшего ответа." },
+    { id: "cheap", what: "Выгоднее всех", unit: "за 1 млн токенов при сильном качестве", kind: "cheap",
+      about: "Модели с сильным качеством по тестам и Arena, по оценке «качество за деньги» (рецепт — в подборе «Дёшево и сердито»)." },
+    { id: "fresh", what: "Самая свежая", unit: "дата выхода", kind: "fresh",
+      about: "Новые модели по дате выхода, если у них уже есть оценки." },
+  ];
+  function zachetList(z) {
+    if (z.kind === "eci") return D.models.filter((m) => m.eci).sort((a, b) => b.eci.v - a.eci.v).map((m) => ({ m, v: m.eci.v, lo: m.eci.lo, hi: m.eci.hi }));
+    if (z.kind === "arena") return D.models.filter((m) => m.arena[z.sec]).sort((a, b) => b.arena[z.sec].elo - a.arena[z.sec].elo)
+      .map((m) => ({ m, v: m.arena[z.sec].elo, lo: m.arena[z.sec].lo, hi: m.arena[z.sec].hi, votes: m.arena[z.sec].votes }));
+    if (z.kind === "cheap") {
+      const t = TASKS.find((x) => x.id === "cheap");
+      return D.models.map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score)
+        .map((x) => ({ m: x.m, v: blended(x.m), score: x.r.score }));
+    }
+    return D.models.filter((m) => m.date && (m.eci || (m.arena.text && m.arena.text.rank <= 60)))
+      .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date }));
+  }
+  const zVal = (z, x) => z.kind === "eci" ? nf(x.v, 1) : z.kind === "arena" ? nf(x.v, 0) : z.kind === "cheap" ? "$" + money(x.v) : dayLong(x.v);
+
+  let openZ = null;
+  function leaderCard(z) {
+    const list = zachetList(z);
     if (!list.length) return "";
     const [a, b, c] = list;
-    const tie = b && a.lo != null && b.hi != null && b.hi >= a.lo;
-    return `<article class="lead">
-      <div class="what">${esc(what)}</div>
-      <div class="who">${esc(a.m.name)}</div>
-      <div class="org"><i class="dot" style="background:${color(a.m.org)}"></i>${esc(a.m.org)} ${FLAGS[a.m.cc] || ""}</div>
-      <div class="val"><b>${val(a)}</b><span>${esc(unit)}${tie ? " · почти ничья" : ""}</span></div>
-      ${extra}
-      ${b ? `<div class="runner">Дальше: ${esc(b.m.name)} (${val(b)})${c ? `, ${esc(c.m.name)} (${val(c)})` : ""}</div>` : ""}
-    </article>`;
+    const v = b && (z.kind === "eci" || z.kind === "arena") ? verdict(a, b, z.kind) : null;
+    return `<button type="button" class="lead" id="lead-${z.id}" data-z="${z.id}" aria-expanded="${openZ === z.id}" aria-controls="zachet">
+      <span class="what">${esc(z.what)}</span>
+      <span class="who">${esc(a.m.name)}</span>
+      <span class="org"><i class="dot" style="background:${color(a.m.org)}"></i>${esc(a.m.org)} ${FLAGS[a.m.cc] || ""}</span>
+      <span class="val"><b>${zVal(z, a)}</b><span>${esc(z.unit)}</span></span>
+      ${v ? `<span class="verdict ${v.cls}">${v.cls === "tie" ? `ничья с ${esc(b.m.name)}` : esc(v.text)}</span>` : ""}
+      ${b ? `<span class="runner">Дальше: ${esc(b.m.name)} (${zVal(z, b)})${c ? `, ${esc(c.m.name)} (${zVal(z, c)})` : ""}</span>` : ""}
+      <span class="open-all">${openZ === z.id ? "Свернуть зачёт" : `Весь зачёт · ${nf(list.length)}`}</span>
+    </button>`;
   }
   function renderLeaders() {
-    const byArena = (s) => D.models.filter((m) => m.arena[s]).sort((a, b) => b.arena[s].elo - a.arena[s].elo)
-      .map((m) => ({ m, v: m.arena[s].elo, lo: m.arena[s].lo, hi: m.arena[s].hi }));
-    const byEci = D.models.filter((m) => m.eci).sort((a, b) => b.eci.v - a.eci.v).map((m) => ({ m, v: m.eci.v, lo: m.eci.lo, hi: m.eci.hi }));
-    const elo = (x) => nf(x.v, 0);
-    const cheapT = TASKS.find((t) => t.id === "cheap");
-    const cheap = D.models.map((m) => ({ m, r: taskScore(cheapT, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score)
-      .map((x) => ({ m: x.m, v: blended(x.m) }));
-    const fresh = D.models.filter((m) => m.date && (m.eci || (m.arena.text && m.arena.text.rank <= 60)))
-      .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date }));
-    $("#leaderGrid").innerHTML = [
-      leaderCard("Сильнее всех по тестам", byEci, (x) => nf(x.v, 1), "индекс Epoch"),
-      leaderCard("Любимица людей", byArena("text"), elo, "Elo · Arena, общий зачёт"),
-      leaderCard("Лучше всех по-русски", byArena("ru"), elo, "Elo · Arena, русский язык"),
-      leaderCard("Математика", byArena("math"), elo, "Elo · Arena, математика"),
-      leaderCard("Сайты и веб-код", byArena("web"), elo, "Elo · Arena, веб-разработка"),
-      leaderCard("Зрение: фото и схемы", byArena("vision"), elo, "Elo · Arena, зрение"),
-      leaderCard("Выгоднее всех", cheap, (x) => "$" + money(x.v), "за 1 млн токенов при сильном качестве"),
-      leaderCard("Самая свежая", fresh, (x) => dayLong(x.v), "дата выхода"),
-    ].join("");
+    $("#leaderGrid").innerHTML = ZACHETS.map(leaderCard).join("");
+    $("#leaderGrid").onclick = (e) => {
+      const b = e.target.closest("button[data-z]"); if (!b) return;
+      openZ = openZ === b.dataset.z ? null : b.dataset.z; zAll = false;
+      renderLeaders(); renderZachet(true);
+    };
+  }
+
+  let zAll = false;
+  const Z_LIMIT = 20;
+  function renderZachet(scroll) {
+    const box = $("#zachet");
+    const z = ZACHETS.find((x) => x.id === openZ);
+    if (!z) { box.hidden = true; box.innerHTML = ""; return; }
+    const list = zachetList(z), shown = zAll ? list : list.slice(0, Z_LIMIT);
+    const withCi = z.kind === "eci" || z.kind === "arena";
+    // группы ничьих: модель в группе, пока её интервал пересекается с интервалом лидера группы
+    const groups = [];
+    for (const x of shown) {
+      const g = groups[groups.length - 1];
+      if (withCi && g && overlap(g[0], x)) g.push(x); else groups.push([x]);
+    }
+    const lo = Math.min(...shown.map((x) => x.lo ?? x.v)), hi = Math.max(...shown.map((x) => x.hi ?? x.v));
+    const X = (v) => ((v - lo) / (hi - lo || 1)) * 100;
+    const top = list[0];
+    let place = 0, html = "";
+    groups.forEach((g, gi) => {
+      if (withCi && gi > 0) {
+        const d = groups[gi - 1][0].v - g[0].v;
+        html += `<li class="z-gap">${z.kind === "arena" ? `Ступенька: ${pts(d)} — модели выше выбирают примерно в ${winOf(d)} из 100 сравнений` : `Ступенька: ${nf(d, 1)} по индексу`}</li>`;
+      }
+      if (withCi && g.length > 1) html += `<li class="z-group">${gi === 0 ? "Группа лидеров" : "Группа"} · ничья между ${g.length} ${plural(g.length, "моделью", "моделями", "моделями")}</li>`;
+      for (const x of g) {
+        place += 1;
+        let note = "";
+        if (z.kind === "arena") note = x === top ? "лидер" : overlap(top, x) ? "ничья с лидером" : `лидера выбирают в ${winOf(top.v - x.v)} из 100`;
+        else if (z.kind === "eci") note = x === top ? "лидер" : overlap(top, x) ? "ничья с лидером" : `−${nf(top.v - x.v, 1)} к лидеру`;
+        else if (z.kind === "cheap") note = `оценка ${Math.round(x.score * 100)}`;
+        else note = x.m.eci ? `тесты ${nf(x.m.eci.v, 1)}` : x.m.arena.text ? `Arena ${nf(x.m.arena.text.elo)}` : "";
+        html += `<li class="z-row g${gi % 2}">
+          <span class="z-n">${place}</span>
+          <span class="z-m"><b>${esc(x.m.name)}</b><span class="meta"><i class="dot" style="background:${color(x.m.org)}"></i> ${esc(x.m.org || "—")} ${FLAGS[x.m.cc] || ""}${x.votes ? ` · ${nf(x.votes)} ${plural(x.votes, "голос", "голоса", "голосов")}` : ""}</span></span>
+          ${withCi ? `<span class="z-ci" title="погрешность ${nf(x.lo, z.kind === "eci" ? 1 : 0)}–${nf(x.hi, z.kind === "eci" ? 1 : 0)}"><i class="ci" style="left:${X(x.lo)}%;width:${Math.max(1, X(x.hi) - X(x.lo))}%"></i><i class="pt" style="left:${X(x.v)}%"></i></span>` : `<span class="z-ci"></span>`}
+          <span class="z-v">${zVal(z, x)}</span>
+          <span class="z-note">${esc(note)}</span>
+        </li>`;
+      }
+    });
+    box.innerHTML = `<div class="z-head"><div><div class="eyebrow">Весь зачёт · ${nf(list.length)} ${plural(list.length, "модель", "модели", "моделей")}</div><h3>${esc(z.what)}</h3><p>${esc(z.about)}</p>
+      ${withCi ? `<p class="z-legend"><span class="ci-demo"></span> полоска — погрешность. Пересекается с лидером группы — ничья.</p>` : ""}</div>
+      <button type="button" class="btn" id="zClose">Свернуть</button></div>
+      <ol class="z-list">${html}</ol>
+      ${list.length > Z_LIMIT && !zAll ? `<div class="more"><button type="button" class="btn" id="zMore">Показать все ${nf(list.length)}</button></div>` : ""}`;
+    box.hidden = false;
+    $("#zClose").onclick = () => { const id = openZ; openZ = null; renderLeaders(); renderZachet(); $(`#lead-${id}`)?.focus(); };
+    const more = $("#zMore"); if (more) more.onclick = () => { zAll = true; renderZachet(); };
+    if (scroll) box.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
   // ───────── история (стрелки) ─────────

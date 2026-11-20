@@ -74,15 +74,55 @@ h2 em{font-family:var(--serif);font-style:italic;font-weight:500;color:var(--sky
 
 /* ── лидеры ── */
 .leaders{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
-.lead{position:relative;display:grid;gap:10px;align-content:start;padding:18px 18px 16px;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,var(--panel),var(--bg-2));min-width:0}
+.lead{position:relative;display:grid;gap:10px;align-content:start;padding:18px 18px 16px;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(180deg,var(--panel),var(--bg-2));min-width:0;text-align:left;color:var(--text);font:inherit;cursor:pointer;transition:border-color .2s var(--ease),transform .2s var(--ease)}
+.lead:hover{border-color:var(--line-2);transform:translateY(-2px)}
+.lead[aria-expanded="true"]{border-color:var(--sky);box-shadow:0 0 0 1px var(--sky) inset}
+.lead>span{display:block}
+.lead .verdict{justify-self:start;font:500 .78rem/1.3 var(--mono);padding:3px 8px;border-radius:6px;border:1px solid var(--line-2);color:var(--muted)}
+.lead .verdict.tie{color:var(--gold);border-color:rgba(255,210,122,.35)}
+.lead .verdict.lead,.lead .verdict.far{color:var(--good);border-color:rgba(91,227,166,.35)}
+.lead .open-all{font-size:.84rem;color:var(--sky)}
+.lead .open-all::after{content:" →"}
+.lead[aria-expanded="true"] .open-all::after{content:" ↑"}
 .lead .what{font:500 .74rem/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .lead .who{font-size:1.28rem;font-weight:700;line-height:1.2;overflow-wrap:anywhere}
-.lead .org{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.9rem}
-.lead .val{display:flex;align-items:baseline;gap:8px;margin-top:2px}
+.lead .org{display:flex!important;align-items:center;gap:8px;color:var(--muted);font-size:.9rem}
+.lead .val{display:flex!important;align-items:baseline;gap:8px;margin-top:2px}
 .lead .val b{font:600 1.5rem/1 var(--mono);color:var(--sky)}
 .lead .val span{color:var(--dim);font-size:.85rem}
 .lead .runner{font-size:.84rem;color:var(--dim);border-top:1px dashed var(--line);padding-top:9px}
 .dot{width:9px;height:9px;border-radius:50%;flex:none;display:inline-block}
+
+/* ── весь зачёт ── */
+.zachet{margin-top:16px;border:1px solid var(--line-2);border-radius:var(--radius);background:var(--bg-2);padding:clamp(16px,2.4vw,26px);display:grid;gap:16px;scroll-margin-top:80px}
+.z-head{display:flex;gap:16px;justify-content:space-between;align-items:flex-start}
+.z-head>div{display:grid;gap:8px;min-width:0}
+.z-head h3{margin:0;font-size:clamp(1.25rem,2.4vw,1.6rem)}
+.z-head p{margin:0;color:var(--muted);max-width:70ch;font-size:.95rem}
+.z-legend{display:flex;align-items:center;gap:8px;font-size:.85rem!important;color:var(--dim)!important}
+.ci-demo{display:inline-block;width:44px;height:6px;border-radius:3px;background:rgba(147,178,255,.35);position:relative}
+.ci-demo::after{content:"";position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px;border-radius:50%;background:var(--sky)}
+.z-list{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.z-row{display:grid;grid-template-columns:34px minmax(0,1.4fr) minmax(90px,1fr) 70px minmax(0,1.1fr);gap:12px;align-items:center;padding:9px 12px;border-radius:10px}
+.z-row.g0{background:rgba(58,107,255,.07)}
+.z-row.g1{background:rgba(160,180,255,.03)}
+.z-n{font:600 .9rem var(--mono);color:var(--dim);text-align:center}
+.z-m{display:grid;gap:2px;min-width:0}
+.z-m b{font-weight:600;overflow-wrap:anywhere}
+.z-ci{position:relative;height:16px}
+.z-ci::before{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line)}
+.z-ci .ci{position:absolute;top:5px;height:6px;border-radius:3px;background:rgba(147,178,255,.35)}
+.z-ci .pt{position:absolute;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;background:var(--sky)}
+.z-v{font:600 .98rem var(--mono);text-align:right}
+.z-note{font-size:.84rem;color:var(--muted)}
+.z-group{font:500 .74rem/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--gold);padding:10px 12px 2px}
+.z-gap{font-size:.84rem;color:var(--good);padding:10px 12px 4px;border-top:1px dashed var(--line-2);margin-top:6px}
+@media (max-width:720px){
+  .z-head{flex-direction:column}
+  .z-row{grid-template-columns:28px minmax(0,1fr) auto;gap:4px 10px}
+  .z-ci{grid-column:2/-1;grid-row:2}
+  .z-note{grid-column:2/-1;grid-row:3}
+}
 
 /* ── подбор под задачу ── */
 .tasks{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
