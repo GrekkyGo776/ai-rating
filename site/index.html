@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Рейтинг нейросетей</title>
+<meta name="description" content="Какая нейросеть сильнее по тестам, какую выбирают люди вслепую и сколько она стоит. Arena, индекс Epoch AI и цены — каждый день по открытым данным.">
+<meta property="og:title" content="Рейтинг нейросетей · fizmat.guru">
+<meta property="og:description" content="Тесты, слепые сравнения людей и цены на модели ИИ. Обновляется каждый день.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#05070f">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/golos-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/main.css?v=2">
+</head>
+<body>
+
+<header class="top"><div class="wrap">
+  <a class="brand" href="https://fizmat.guru"><img src="favicon.svg" alt="" width="26" height="26">fizmat.guru <span>· ИИ</span></a>
+  <nav class="nav" aria-label="Разделы">
+    <a href="#leaders">Лидеры</a><a href="#pick">Подбор</a><a href="#table">Все модели</a><a href="#charts">Графики</a><a href="#how">Как считаем</a>
+  </nav>
+</div></header>
+
+<section class="hero" aria-labelledby="h1">
+  <canvas id="sky" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <div class="eyebrow">Обновляется каждый день</div>
+    <h1 id="h1">Рейтинг <em>нейросетей</em></h1>
+    <p class="lede">Какая модель сильнее по тестам, какую выбирают люди в слепых сравнениях и сколько она стоит. Только открытые данные, со ссылками на источники.</p>
+    <div class="status" id="status"><span class="pill">Загружаю данные…</span></div>
+  </div>
+</section>
+
+<main>
+  <section class="band" id="leaders" aria-labelledby="h-leaders"><div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Сегодня</div>
+      <h2 id="h-leaders">Кто впереди <em>в каждом зачёте</em></h2>
+      <p>Первое место в каждом рейтинге и кто идёт следом. Если разрыв меньше погрешности, это скорее ничья.</p>
+    </div>
+    <div class="leaders" id="leaderGrid"><div class="loading">Загружаю…</div></div>
+  </div></section>
+
+  <section class="band" id="pick" aria-labelledby="h-pick"><div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Подбор под задачу</div>
+      <h2 id="h-pick">Какую модель <em>взять для дела</em></h2>
+      <p>Сводим несколько рейтингов с весами под конкретную задачу. Рецепт виден справа: никакой магии, только открытые цифры.</p>
+    </div>
+    <div class="tasks" id="tasks" role="group" aria-label="Задача"></div>
+    <div class="pick">
+      <ol class="podium" id="podium"></ol>
+      <aside class="recipe" id="recipe"></aside>
+    </div>
+  </div></section>
+
+  <section class="band" id="table" aria-labelledby="h-table"><div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Все модели</div>
+      <h2 id="h-table">Полная <em>таблица</em></h2>
+      <p>Нажмите на заголовок колонки, чтобы отсортировать. Раздел Arena переключается в списке: общий зачёт, русский язык, математика, код и другие.</p>
+    </div>
+    <div class="controls">
+      <div class="field"><label for="q">Поиск</label><input id="q" type="search" placeholder="Claude, GPT, Qwen…" autocomplete="off"></div>
+      <div class="field"><label for="sec">Arena</label><select id="sec"></select></div>
+      <div class="field"><label for="org">Разработчик</label><select id="org"><option value="">все</option></select></div>
+      <label class="toggle" for="onlyOpen"><input type="checkbox" id="onlyOpen">открытые веса</label>
+      <label class="toggle" for="onlyPrice"><input type="checkbox" id="onlyPrice">есть цена</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tbl"><div class="tscroll"><table>
+      <thead><tr>
+        <th class="c-n">#</th>
+        <th data-k="name"><button type="button">Модель</button></th>
+        <th class="r" data-k="eci"><button type="button">Тесты · Epoch</button></th>
+        <th class="r" data-k="arena"><button type="button" id="arenaHead">Люди · Arena</button></th>
+        <th class="r" data-k="price"><button type="button">$ за 1 млн токенов</button></th>
+        <th class="r c-d" data-k="date"><button type="button">Вышла</button></th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="6" class="loading">Загружаю…</td></tr></tbody>
+    </table></div>
+    <div class="more" id="moreBox" hidden><button class="btn" type="button" id="more">Показать все</button></div></div>
+  </div></section>
+
+  <section class="band" id="charts" aria-labelledby="h-charts"><div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Графики</div>
+      <h2 id="h-charts">Тесты, люди <em>и деньги</em></h2>
+      <p>Наведите или нажмите на точку, чтобы увидеть модель.</p>
+    </div>
+    <div class="legend" id="legend" style="margin-bottom:12px"></div>
+    <div class="charts">
+      <figure class="chart" style="margin:0"><h3>Умная по тестам ≠ любимая людьми</h3>
+        <p>По горизонтали индекс Epoch, по вертикали Elo в Arena. Выше линии — модели, которые людям нравятся больше, чем можно ждать по тестам.</p>
+        <svg id="sc1" viewBox="0 0 640 420" role="img" aria-label="Индекс Epoch против Elo Arena"></svg></figure>
+      <figure class="chart" style="margin:0"><h3>Сила и цена</h3>
+        <p>Цена за 1 млн токенов (3 части входа на 1 часть выхода), шкала логарифмическая. Пунктир — самые выгодные модели: сильнее за эти деньги нет.</p>
+        <svg id="sc2" viewBox="0 0 640 420" role="img" aria-label="Индекс Epoch против цены"></svg></figure>
+    </div>
+  </div></section>
+
+  <section class="band" id="how" aria-labelledby="h-how"><div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow">Методика</div>
+      <h2 id="h-how">Как <em>считаем</em></h2>
+    </div>
+    <div class="how">
+      <article><h3>Тесты · индекс Epoch AI</h3><p>Epoch Capabilities Index сводит десятки сложных тестов (математика, код, наука, рассуждения) в одну шкалу. Чем выше, тем сильнее модель. Рядом с числом — погрешность: близкие значения стоит считать ничьей.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
+      <article><h3>Люди · Arena</h3><p>Люди задают вопрос, видят ответы двух неизвестных моделей и выбирают лучший. Из сотен тысяч голосов считается рейтинг Elo. Берём вариант с поправкой на стиль: длинный и нарядный ответ не получает бонуса. Есть отдельные зачёты по русскому языку, математике, коду, сайтам и картинкам.</p><p><a href="https://arena.ai" target="_blank" rel="noopener">arena.ai</a></p></article>
+      <article><h3>Цены · OpenRouter</h3><p>Цена API в долларах за миллион токенов: это примерно 700 тысяч русских слов. Для сравнения берём смесь 3 : 1 — три части входа на одну часть выхода. В чат-приложениях с подпиской цены другие.</p><p><a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a></p></article>
+      <article><h3>Режимы и названия</h3><p>У многих моделей есть режимы «думать дольше» (High, Max). Для каждой модели показываем лучший режим. Названия из разных источников сводятся автоматически, сложные случаи — вручную. Модели, которых нет в источнике, показаны с прочерком.</p></article>
+      <article><h3>Подбор под задачу</h3><p>Каждый рейтинг переводим в шкалу от 0 до 100: лучшая модель — 100, слабые — около нуля. Потом складываем с весами задачи. Если у модели нет главного для задачи рейтинга, в подборку она не попадает.</p></article>
+      <article><h3>Чего здесь нет</h3><p>Российских моделей (GigaChat, YandexGPT) в этих открытых рейтингах нет — их там просто не тестируют. Доступность из России и оплата российской картой тоже не учитываются.</p></article>
+    </div>
+  </div></section>
+</main>
+
+<footer><div class="wrap">
+  <div>Данные: <a href="https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset" target="_blank" rel="noopener">Arena leaderboard dataset</a> (CC BY 4.0), <a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">Epoch AI, «Capabilities &amp; benchmarking»</a> (CC BY 4.0), <a href="https://openrouter.ai/models" target="_blank" rel="noopener">OpenRouter</a>. Сводные оценки и подбор под задачу сделаны fizmat.guru и не являются позицией авторов данных.</div>
+  <div>Сделано на <a href="https://fizmat.guru">fizmat.guru</a> · <span id="built"></span></div>
+</div></footer>
+
+<script src="assets/js/app.js?v=4" defer></script>
+</body>
+</html>
