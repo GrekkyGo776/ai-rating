@@ -64,6 +64,12 @@ h1 em{font-family:var(--serif);font-weight:500;font-style:italic;color:var(--sky
 .pill i{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good);flex:none}
 .pill i.stale{background:var(--gold);box-shadow:0 0 8px var(--gold)}
 button.pill{font:inherit;font-size:.85rem;cursor:pointer}
+.period{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.period-label{font:500 .76rem/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.period-chips{display:flex;flex-wrap:wrap;gap:6px}
+.period .chip{padding:6px 12px;font-size:.88rem}
+.period-count{color:var(--muted);font-size:.88rem}
+.period-count b{color:var(--text)}
 .fresh-pill{border-color:var(--sky)!important;color:var(--text)!important}
 .fresh-pill:hover{background:rgba(58,107,255,.18)!important}
 

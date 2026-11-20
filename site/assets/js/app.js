@@ -29,14 +29,22 @@
 
   let D = null, H = {}, NORM = {};
 
-  // «Только актуальные»: по умолчанию модели, вышедшие за последние 12 месяцев (выбор запоминается в браузере).
-  const FRESH_KEY = "ai-rating-fresh", FRESH_DAYS = 365;
-  let FRESH = true, CUTOFF = "";
-  try { FRESH = localStorage.getItem(FRESH_KEY) !== "0"; } catch (e) { /* без памяти */ }
-  const isFresh = (m) => !m.date || m.date >= CUTOFF;
-  const models = () => (FRESH ? D.models.filter(isFresh) : D.models);
-  function setFresh(v) {
-    FRESH = v; try { localStorage.setItem(FRESH_KEY, v ? "1" : "0"); } catch (e) { /* без памяти */ }
+  // Свежесть: показываем модели, вышедшие за выбранный срок (по умолчанию 12 месяцев; выбор запоминается в браузере).
+  const PERIODS = [[30, "1 месяц", "1 мес"], [91, "3 месяца", "3 мес"], [182, "6 месяцев", "6 мес"], [365, "12 месяцев", "12 мес"], [0, "все", "все"]];
+  const PERIOD_KEY = "ai-rating-period";
+  let PERIOD = 365, CUTOFF = "";
+  try {
+    const v = localStorage.getItem(PERIOD_KEY);
+    if (v != null && PERIODS.some(([d]) => String(d) === v)) PERIOD = +v;
+    else if (localStorage.getItem("ai-rating-fresh") === "0") PERIOD = 0; // прежний флажок «за 12 месяцев»
+  } catch (e) { /* без памяти */ }
+  const isFresh = (m) => !PERIOD || !m.date || m.date >= CUTOFF;
+  const models = () => (PERIOD ? D.models.filter(isFresh) : D.models);
+  const periodName = () => PERIODS.find(([d]) => d === PERIOD)[1];
+  const periodOptions = () => PERIODS.map(([d, nm]) => `<option value="${d}"${d === PERIOD ? " selected" : ""}>${d ? "за " + nm : "все модели"}</option>`).join("");
+  function setPeriod(d) {
+    PERIOD = d; try { localStorage.setItem(PERIOD_KEY, String(d)); } catch (e) { /* без памяти */ }
+    CUTOFF = PERIOD ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
     renderStatus(); renderLeaders(); renderZachet(); renderTasks(); renderTable(); renderCharts();
   }
 
@@ -354,7 +362,7 @@
       </tr>`;
     }).join("") || `<tr><td colspan="6" class="loading">Ничего не нашлось.</td></tr>`;
     $("#count").textContent = `${nf(total)} ${plural(total, "модель", "модели", "моделей")}`;
-    $("#onlyFresh").checked = FRESH;
+    $("#periodTbl").innerHTML = periodOptions();
     $("#moreBox").hidden = st.all || total <= LIMIT;
     $("#more").textContent = `Показать все ${nf(total)}`;
     document.querySelectorAll("thead th[data-k]").forEach((th) => {
@@ -374,7 +382,7 @@
     $("#org").onchange = (e) => { st.org = e.target.value; renderTable(); };
     $("#onlyOpen").onchange = (e) => { st.open = e.target.checked; renderTable(); };
     $("#onlyPrice").onchange = (e) => { st.price = e.target.checked; renderTable(); };
-    $("#onlyFresh").onchange = (e) => setFresh(e.target.checked);
+    $("#periodTbl").onchange = (e) => setPeriod(+e.target.value);
     $("#more").onclick = () => { st.all = true; renderTable(); };
     document.querySelectorAll("thead th[data-k] button").forEach((b) => b.addEventListener("click", () => {
       const k = b.parentElement.dataset.k;
@@ -475,7 +483,7 @@
     box.innerHTML = `<div class="ct-row">
         <div class="field ct-add"><label for="pinAdd">Подписать</label><input id="pinAdd" list="pinList" placeholder="Claude Opus 5.5, GPT-6.2 Sol…" autocomplete="off"></div>
         <datalist id="pinList">${inCharts.map((m) => `<option value="${esc(m.name)}"></option>`).join("")}</datalist>
-        <label class="toggle" for="freshCharts"><input type="checkbox" id="freshCharts"${FRESH ? " checked" : ""}>за 12 месяцев</label>
+        <div class="field"><label for="periodCh">Вышли</label><select id="periodCh">${periodOptions()}</select></div>
         <label class="toggle" for="pinOnly"><input type="checkbox" id="pinOnly"${CS.only ? " checked" : ""}${CS.pins.size ? "" : " disabled"}>только подписанные</label>
         ${CS.pins.size || CS.orgs.size || CS.only ? `<button type="button" class="btn sm" id="pinReset">Сбросить</button>` : ""}
       </div>
@@ -490,14 +498,14 @@
       if (m) { CS.pins.add(m.id); saveCS(); renderCharts(); $("#pinAdd")?.focus(); return; }
       const other = D.models.find((x) => x.name.toLowerCase() === q) || (!exact && D.models.find((x) => x.name.toLowerCase().includes(q)));
       const msg = $("#pinMsg");
-      msg.textContent = other && FRESH && !isFresh(other) ? `${other.name} вышла больше года назад и скрыта. Нажмите «за 12 месяцев», чтобы показать все модели.` :
+      msg.textContent = other && PERIOD && !isFresh(other) ? `${other.name} вышла раньше, чем за ${periodName()}, и скрыта. Выберите срок подлиннее или «все модели».` :
         other ? `${other.name} нет на графиках: у модели пока нет индекса Epoch. Она есть в таблице выше.` : `Не нашёл «${add.value.trim()}». Попробуйте часть названия, например «Opus».`;
       msg.hidden = false;
     };
     add.addEventListener("change", () => tryAdd(true));
     add.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); tryAdd(false); } });
     $("#pinOnly").onchange = (e) => { CS.only = e.target.checked; saveCS(); renderCharts(); };
-    $("#freshCharts").onchange = (e) => setFresh(e.target.checked);
+    $("#periodCh").onchange = (e) => setPeriod(+e.target.value);
     const reset = $("#pinReset"); if (reset) reset.onclick = () => { CS.pins.clear(); CS.orgs.clear(); CS.only = false; saveCS(); renderCharts(); };
     box.querySelectorAll(".pin").forEach((b) => b.onclick = () => togglePin(b.dataset.id));
     box.querySelectorAll(".org-chip").forEach((b) => b.onclick = () => {
@@ -559,11 +567,11 @@
       pill(s.arena?.ok !== false, `Arena: публикация <b>${dayLong(src.arena?.published)}</b>${s.arena?.ok === false ? " · не обновилась" : ""}`),
       pill(s.epoch?.ok !== false, `Epoch: модели по <b>${dayLong(src.epoch?.latest_model)}</b>${s.epoch?.ok === false ? " · не обновился" : ""}`),
       pill(s.openrouter?.ok !== false, `Цены: <b>OpenRouter</b>${s.openrouter?.ok === false ? " · не обновились" : ""}`),
-      `<button type="button" class="pill fresh-pill" id="freshPill" aria-pressed="${FRESH}">${FRESH
-        ? `<b>${nf(models().length)}</b> актуальных из ${nf(D.models.length)} · показать все`
-        : `<b>${nf(D.models.length)}</b> моделей · только за 12 месяцев`}</button>`,
     ].join("");
-    $("#freshPill").onclick = () => setFresh(!FRESH);
+    $("#period").innerHTML = `<span class="period-label">Вышли за</span><span class="period-chips" role="group" aria-label="Срок выхода моделей">${
+      PERIODS.map(([d, , short]) => `<button type="button" class="chip" data-d="${d}" aria-pressed="${d === PERIOD}">${short}</button>`).join("")
+    }</span><span class="period-count"><b>${nf(models().length)}</b> из ${nf(D.models.length)} ${plural(D.models.length, "модели", "моделей", "моделей")}</span>`;
+    $("#period").onclick = (e) => { const b = e.target.closest("button[data-d]"); if (b) setPeriod(+b.dataset.d); };
     $("#built").textContent = `данные от ${dayLong(D.built)} ${b.getFullYear()}`;
   }
 
@@ -597,7 +605,7 @@
     fetch("data/history.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : {}).catch(() => ({})),
   ]).then(([d, h]) => {
     D = d; H = h || {};
-    CUTOFF = new Date(new Date(D.built).getTime() - FRESH_DAYS * 864e5).toISOString().slice(0, 10);
+    CUTOFF = PERIOD ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
     buildNorm(); renderStatus(); renderLeaders(); renderTasks(); bindTable(); renderTable(); renderCharts();
     let rt; let lastW = innerWidth;
     addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; renderCharts(); } }, 250); });
