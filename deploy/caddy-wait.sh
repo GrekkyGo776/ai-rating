@@ -14,10 +14,10 @@ while :; do
   now=$(date +%s)
   if grep -q '# >>> ai-rating' "$CF"; then echo "Блок уже стоит"; exit 0; fi
   if [ "${FORCE:-}" = 1 ] || guard check >/dev/null 2>&1; then
-    [ -z "$quiet_since" ] && { quiet_since=$now; echo "$(date +%H:%M) никого нет — жду ещё $((QUIET_SEC/60)) мин"; }
+    [ -z "$quiet_since" ] && { quiet_since=$now; echo "$(TZ=Europe/Moscow date +%H:%M) никого нет — жду ещё $((QUIET_SEC/60)) мин"; }
     if [ $((now - quiet_since)) -ge "$QUIET_SEC" ]; then break; fi
   else
-    [ -n "$quiet_since" ] && echo "$(date +%H:%M) снова занимаются — жду дальше"
+    [ -n "$quiet_since" ] && echo "$(TZ=Europe/Moscow date +%H:%M) снова занимаются — жду дальше"
     quiet_since=""
   fi
   if [ $((now - started)) -ge "$MAX_WAIT_SEC" ]; then
@@ -37,4 +37,4 @@ if ! ( set -a; for f in $envs; do [ -r "$f" ] && . "$f"; done; set +a
   exit 1
 fi
 systemctl reload caddy
-notify "✓ Сайт «Рейтинг нейросетей» включён в $(date +%H:%M): https://ai.fizmat.guru (пока DNS не готов — https://ai-rating.135-106-164-135.sslip.io)"
+notify "✓ Сайт «Рейтинг нейросетей» включён в $(TZ=Europe/Moscow date +%H:%M): https://ai.fizmat.guru (пока DNS не готов — https://ai-rating.135-106-164-135.sslip.io)"
