@@ -310,7 +310,16 @@
   }
 
   // ───────── графики ─────────
-  function scatter(svg, pts, o) {
+  // Выбор зрителя (общий для обоих графиков, запоминается в браузере):
+  // pins — подписанные модели, only — скрыть остальные, orgs — оставить только этих разработчиков.
+  const CS_KEY = "ai-rating-charts";
+  const CS = { pins: new Set(), only: false, orgs: new Set() };
+  try { const s = JSON.parse(localStorage.getItem(CS_KEY) || "{}"); CS.pins = new Set(s.pins || []); CS.only = !!s.only; CS.orgs = new Set(s.orgs || []); } catch (e) { /* без памяти */ }
+  const saveCS = () => { try { localStorage.setItem(CS_KEY, JSON.stringify({ pins: [...CS.pins], only: CS.only, orgs: [...CS.orgs] })); } catch (e) { /* без памяти */ } };
+  const orgKey = (m) => ORGC[m.org] ? m.org : "other";
+  const visible = (m) => (!CS.orgs.size || CS.orgs.has(orgKey(m))) && (!CS.only || !CS.pins.size || CS.pins.has(m.id));
+
+  function scatter(svg, all, o) {
     const narrow = (svg.clientWidth || 640) < 520;
     const W = narrow ? 380 : 640, H2 = narrow ? 360 : 420, L = narrow ? 56 : 60, R = 12, T = 14, B = 44;
     svg.setAttribute("viewBox", `0 0 ${W} ${H2}`);
@@ -321,35 +330,106 @@
     for (const t of o.yt) s += `<line x1="${L}" x2="${W - R}" y1="${Y(t)}" y2="${Y(t)}" stroke="rgba(160,180,255,.09)"/><text x="${L - 8}" y="${Y(t) + 4}" text-anchor="end">${nf(t)}</text>`;
     s += `<text x="${(L + W - R) / 2}" y="${H2 - 6}" text-anchor="middle">${esc(o.xl)}</text><text transform="translate(12 ${(T + H2 - B) / 2}) rotate(-90)" text-anchor="middle">${esc(o.yl)}</text>`;
     if (o.line) s += `<polyline points="${o.line.map(([x, y]) => `${X(x)},${Y(y)}`).join(" ")}" fill="none" stroke="var(--sky)" stroke-opacity=".55" stroke-width="1.5" stroke-dasharray="5 5"/>`;
+    const pts = all.filter((p) => visible(p.m));
+    const pinned = CS.pins.size > 0;
+    const labels = pinned ? pts.filter((p) => CS.pins.has(p.m.id)) : o.auto(pts);
+    const lab = new Set(labels.map((p) => p.m.id));
+    // точки: подписанные — крупнее и поверх, остальные при выборе бледнее
+    const drawn = [...pts].sort((a, b) => lab.has(a.m.id) - lab.has(b.m.id));
+    for (const p of drawn) {
+      const on = lab.has(p.m.id), dim = pinned && !on;
+      s += `<circle class="pt${on ? " on" : ""}" data-id="${esc(p.m.id)}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${on ? 6.5 : 4.5}" fill="${color(p.m.org)}" fill-opacity="${on ? 1 : dim ? .22 : .75}" stroke="${on ? "var(--text)" : "var(--bg)"}" stroke-width="${on ? 1.6 : 1.2}"/>`;
+    }
+    // подписи: пробуем справа, слева, сверху, снизу; не налезаем на другие подписи, точки и края
     const placed = [];
-    const labels = new Set(o.labels);
-    pts.forEach((p, i) => { s += `<circle class="pt" data-i="${i}" cx="${X(p.x)}" cy="${Y(p.y)}" r="${labels.has(p.m.id) ? 6 : 4.5}" fill="${color(p.m.org)}" fill-opacity="${labels.has(p.m.id) ? 1 : .75}" stroke="var(--bg)" stroke-width="1.2"/>`; });
-    const order = [...labels];
-    pts.filter((p) => labels.has(p.m.id)).sort((a, b) => order.indexOf(a.m.id) - order.indexOf(b.m.id)).forEach((p) => {
-      const cx = X(p.x), cy = Y(p.y), w = p.m.name.length * 6.2 + 4;
-      const right = cx + 8 + w < W - R;
-      const box = { x: right ? cx + 8 : cx - 8 - w, y: cy - 12, w, h: 14 };
-      if (placed.some((b) => !(box.x > b.x + b.w || box.x + box.w < b.x || box.y > b.y + b.h || box.y + box.h < b.y))) return;
-      placed.push(box);
-      s += `<text class="lbl" x="${right ? cx + 8 : cx - 8}" y="${cy - 1}" text-anchor="${right ? "start" : "end"}">${esc(p.m.name)}</text>`;
-    });
+    const dots = pts.map((p) => ({ x: X(p.x), y: Y(p.y), id: p.m.id }));
+    const hits = (bx, self) => placed.filter((b) => !(bx.x > b.x + b.w || bx.x + bx.w < b.x || bx.y > b.y + b.h || bx.y + bx.h < b.y)).length * 10
+      + dots.filter((d) => d.id !== self && d.x > bx.x - 4 && d.x < bx.x + bx.w + 4 && d.y > bx.y - 4 && d.y < bx.y + bx.h + 4).length;
+    for (const p of labels) {
+      const cx = X(p.x), cy = Y(p.y), w = p.m.name.length * 6.3 + 4, h = 14;
+      const cands = [
+        { x: cx + 9, y: cy - h / 2, a: "start", tx: cx + 9, ty: cy + 4 },
+        { x: cx - 9 - w, y: cy - h / 2, a: "end", tx: cx - 9, ty: cy + 4 },
+        { x: cx - w / 2, y: cy - 10 - h, a: "middle", tx: cx, ty: cy - 13 },
+        { x: cx - w / 2, y: cy + 10, a: "middle", tx: cx, ty: cy + 21 },
+        { x: cx + 7, y: cy - 8 - h, a: "start", tx: cx + 7, ty: cy - 11 },
+        { x: cx - 7 - w, y: cy - 8 - h, a: "end", tx: cx - 7, ty: cy - 11 },
+      ].filter((c) => c.x >= L - 2 && c.x + w <= W - R + 2 && c.y >= 0 && c.y + h <= H2 - B + 2)
+        .map((c) => ({ ...c, w, h, score: 0 }));
+      if (!cands.length) continue;
+      cands.forEach((c) => { c.score = hits(c, p.m.id); });
+      const best = cands.reduce((a, b) => (b.score < a.score ? b : a));
+      if (!pinned && best.score >= 10) continue; // в авто-режиме лишние подписи не рисуем
+      placed.push(best);
+      s += `<text class="lbl" x="${best.tx}" y="${best.ty}" text-anchor="${best.a}">${esc(p.m.name)}</text>`;
+    }
+    if (!pts.length) s += `<text x="${(L + W - R) / 2}" y="${(T + H2 - B) / 2}" text-anchor="middle">Нет моделей под выбранные фильтры</text>`;
     svg.innerHTML = s;
     const fig = svg.closest(".chart");
     let tip = fig.querySelector(".tip");
     if (!tip) { tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; fig.appendChild(tip); }
-    const show = (e) => {
-      const c = e.target.closest(".pt"); if (!c) { tip.hidden = true; return; }
-      const p = pts[+c.dataset.i]; tip.innerHTML = o.tip(p); tip.hidden = false;
+    const byId = new Map(pts.map((p) => [p.m.id, p]));
+    const show = (c) => {
+      const p = byId.get(c.dataset.id); if (!p) return;
+      tip.innerHTML = o.tip(p) + `<br><span class="muted">${CS.pins.has(p.m.id) ? "Нажмите, чтобы убрать подпись" : "Нажмите, чтобы подписать"}</span>`;
+      tip.hidden = false;
       const fr = fig.getBoundingClientRect(), cr = c.getBoundingClientRect();
       let left = cr.left - fr.left + 12, top = cr.top - fr.top - 10;
       if (left + 240 > fr.width) left = cr.left - fr.left - 250;
       tip.style.left = Math.max(6, left) + "px"; tip.style.top = Math.max(6, top) + "px";
     };
-    svg.onmousemove = show; svg.onclick = show; svg.onmouseleave = () => { tip.hidden = true; };
+    svg.onmousemove = (e) => { const c = e.target.closest(".pt"); if (c) show(c); else tip.hidden = true; };
+    svg.onmouseleave = () => { tip.hidden = true; };
+    svg.onclick = (e) => {
+      const c = e.target.closest(".pt"); if (!c) { tip.hidden = true; return; }
+      togglePin(c.dataset.id);
+    };
   }
   function niceTicks(a, b, step) { const out = []; for (let v = Math.ceil(a / step) * step; v <= b; v += step) out.push(Math.round(v)); return out; }
 
+  function togglePin(id) {
+    if (CS.pins.has(id)) CS.pins.delete(id); else CS.pins.add(id);
+    saveCS(); renderCharts();
+  }
+
+  function renderChartTools() {
+    const inCharts = D.models.filter((m) => m.eci && (m.arena.text || blended(m) > 0));
+    const byId = new Map(D.models.map((m) => [m.id, m]));
+    for (const id of [...CS.pins]) if (!byId.has(id)) CS.pins.delete(id);
+    const orgs = Object.keys(ORGC).filter((o) => inCharts.some((m) => m.org === o));
+    const box = $("#chartTools");
+    box.innerHTML = `<div class="ct-row">
+        <div class="field ct-add"><label for="pinAdd">Подписать</label><input id="pinAdd" list="pinList" placeholder="Claude Opus 5.5, GPT-6.2 Sol…" autocomplete="off"></div>
+        <datalist id="pinList">${inCharts.map((m) => `<option value="${esc(m.name)}"></option>`).join("")}</datalist>
+        <label class="toggle" for="pinOnly"><input type="checkbox" id="pinOnly"${CS.only ? " checked" : ""}${CS.pins.size ? "" : " disabled"}>только подписанные</label>
+        ${CS.pins.size || CS.orgs.size || CS.only ? `<button type="button" class="btn sm" id="pinReset">Сбросить</button>` : ""}
+      </div>
+      <p class="ct-msg" id="pinMsg" role="status" hidden></p>
+      ${CS.pins.size ? `<div class="pins">${[...CS.pins].map((id) => byId.get(id)).filter(Boolean).map((m) => `<button type="button" class="pin" data-id="${esc(m.id)}" title="Убрать подпись"><i class="dot" style="background:${color(m.org)}"></i>${esc(m.name)}<span aria-hidden="true">×</span><span class="sr-only">убрать</span></button>`).join("")}</div>`
+        : `<p class="ct-hint">Нажмите на точку, чтобы подписать модель, или найдите её в поле выше. Пока ничего не выбрано, подписаны самые заметные модели.</p>`}
+      <div class="legend" role="group" aria-label="Разработчики">${[...orgs, "other"].map((o) => `<button type="button" class="org-chip" data-org="${esc(o)}" aria-pressed="${CS.orgs.has(o)}"><i class="dot" style="background:${color(o === "other" ? "" : o)}"></i>${esc(o === "other" ? "другие" : o)}</button>`).join("")}${CS.orgs.size ? `<span class="ct-note">показаны только выбранные разработчики</span>` : ""}</div>`;
+    const add = $("#pinAdd");
+    const tryAdd = (exact) => {
+      const q = add.value.trim().toLowerCase(); if (!q) return;
+      const m = inCharts.find((x) => x.name.toLowerCase() === q) || (!exact && inCharts.find((x) => x.name.toLowerCase().includes(q)));
+      if (m) { CS.pins.add(m.id); saveCS(); renderCharts(); $("#pinAdd")?.focus(); return; }
+      const other = D.models.find((x) => x.name.toLowerCase() === q) || (!exact && D.models.find((x) => x.name.toLowerCase().includes(q)));
+      const msg = $("#pinMsg");
+      msg.textContent = other ? `${other.name} нет на графиках: у модели пока нет индекса Epoch. Она есть в таблице выше.` : `Не нашёл «${add.value.trim()}». Попробуйте часть названия, например «Opus».`;
+      msg.hidden = false;
+    };
+    add.addEventListener("change", () => tryAdd(true));
+    add.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); tryAdd(false); } });
+    $("#pinOnly").onchange = (e) => { CS.only = e.target.checked; saveCS(); renderCharts(); };
+    const reset = $("#pinReset"); if (reset) reset.onclick = () => { CS.pins.clear(); CS.orgs.clear(); CS.only = false; saveCS(); renderCharts(); };
+    box.querySelectorAll(".pin").forEach((b) => b.onclick = () => togglePin(b.dataset.id));
+    box.querySelectorAll(".org-chip").forEach((b) => b.onclick = () => {
+      const o = b.dataset.org; if (CS.orgs.has(o)) CS.orgs.delete(o); else CS.orgs.add(o); saveCS(); renderCharts();
+    });
+  }
+
   function renderCharts() {
+    renderChartTools();
     // 1. тесты × люди
     const p1 = D.models.filter((m) => m.eci && m.arena.text).map((m) => ({ m, x: m.eci.v, y: m.arena.text.elo }));
     if (p1.length > 3) {
@@ -358,15 +438,15 @@
       const y0 = Math.floor(Math.min(...ys) / 20) * 20 - 10, y1 = Math.ceil(Math.max(...ys) / 20) * 20 + 10;
       const mx = xs.reduce((a, b) => a + b) / xs.length, my = ys.reduce((a, b) => a + b) / ys.length;
       const k = p1.reduce((a, p) => a + (p.x - mx) * (p.y - my), 0) / p1.reduce((a, p) => a + (p.x - mx) ** 2, 0), b = my - k * mx;
-      const res = p1.map((p) => ({ id: p.m.id, r: p.y - (k * p.x + b) }));
-      const lab = new Set([
-        ...[...p1].sort((a, b2) => b2.x - a.x).slice(0, 4).map((p) => p.m.id),
-        ...[...p1].sort((a, b2) => b2.y - a.y).slice(0, 3).map((p) => p.m.id),
-        ...[...res].sort((a, b2) => b2.r - a.r).slice(0, 2).map((r) => r.id),
-        ...[...res].sort((a, b2) => a.r - b2.r).slice(0, 2).map((r) => r.id),
-      ]);
+      const resid = (p) => p.y - (k * p.x + b);
       scatter($("#sc1"), p1, {
-        x0, x1, y0, y1, xl: "Тесты · индекс Epoch", yl: "Люди · Elo Arena", labels: lab,
+        x0, x1, y0, y1, xl: "Тесты · индекс Epoch", yl: "Люди · Elo Arena",
+        auto: (pts) => [...new Set([
+          ...[...pts].sort((a, c) => c.x - a.x).slice(0, 4),
+          ...[...pts].sort((a, c) => c.y - a.y).slice(0, 3),
+          ...[...pts].sort((a, c) => resid(c) - resid(a)).slice(0, 2),
+          ...[...pts].sort((a, c) => resid(a) - resid(c)).slice(0, 2),
+        ])],
         xt: niceTicks(x0, x1, 5).map((v) => ({ v, l: v })), yt: niceTicks(y0, y1, 20),
         line: [[x0, k * x0 + b], [x1, k * x1 + b]],
         tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.x, 1)} · Arena: ${nf(p.y)} (#${p.m.arena.text.rank})`,
@@ -378,18 +458,17 @@
       const xs = p2.map((p) => p.x), ys = p2.map((p) => p.y);
       const x0 = Math.floor(Math.min(...xs) * 2) / 2 - 0.1, x1 = Math.ceil(Math.max(...xs) * 2) / 2 + 0.1;
       const y0 = Math.floor(Math.min(...ys) / 10) * 10 - 2, y1 = Math.ceil(Math.max(...ys) / 10) * 10 + 2;
-      const front = []; let best = -Infinity;
-      [...p2].sort((a, b) => a.x - b.x || b.y - a.y).forEach((p) => { if (p.y > best) { best = p.y; front.push(p); } });
+      const frontOf = (list) => { const f = []; let best = -Infinity; [...list].sort((a, c) => a.x - c.x || c.y - a.y).forEach((p) => { if (p.y > best) { best = p.y; f.push(p); } }); return f; };
+      const front = frontOf(p2);
       const ticks = [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100].filter((v) => Math.log10(v) >= x0 && Math.log10(v) <= x1);
       scatter($("#sc2"), p2, {
-        x0, x1, y0, y1, xl: "Цена, $ за 1 млн токенов (лог. шкала)", yl: "Тесты · индекс Epoch", labels: new Set(front.slice(-7).reverse().map((p) => p.m.id)),
+        x0, x1, y0, y1, xl: "Цена, $ за 1 млн токенов (лог. шкала)", yl: "Тесты · индекс Epoch",
+        auto: (pts) => frontOf(pts).slice(-7).reverse(),
         xt: ticks.map((v) => ({ v: Math.log10(v), l: "$" + String(v).replace(".", ",") })), yt: niceTicks(y0, y1, 10),
         line: front.map((p) => [p.x, p.y]),
         tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.y, 1)} · $${money(10 ** p.x)} за 1 млн<br><span class="muted">вход $${money(p.m.price.in)}, выход $${money(p.m.price.out)}</span>`,
       });
     }
-    const orgs = Object.keys(ORGC).filter((o) => D.models.some((m) => m.org === o && m.eci));
-    $("#legend").innerHTML = orgs.map((o) => `<span><i class="dot" style="background:${color(o)}"></i>${esc(o)}</span>`).join("") + `<span><i class="dot" style="background:${color("")}"></i>другие</span>`;
   }
 
   // ───────── статус ─────────
