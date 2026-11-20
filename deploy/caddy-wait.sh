@@ -2,17 +2,18 @@
 # Живёт на сервере (/usr/local/sbin/ai-rating-caddy-wait), запускается службой ai-rating-caddy-wait.
 # Ждёт, пока 10 минут подряд никто не занимается в Fizmat Hero, потом добавляет блок ai-rating в Caddyfile,
 # проверяет конфигурацию (при ошибке — откат) и делает reload. Итог — в Telegram через deploy-guard.ts notify.
+# FORCE=1 — не ждать тишины (только по прямому слову Григория: reload на секунду рвёт соединения досок).
 set -uo pipefail
 CF=/etc/caddy/Caddyfile
 BLOCK=/etc/caddy/ai-rating.conf
-QUIET_SEC=${QUIET_SEC:-600}; POLL_SEC=${POLL_SEC:-30}; MAX_WAIT_SEC=${MAX_WAIT_SEC:-43200}
+QUIET_SEC=${QUIET_SEC:-600}; [ "${FORCE:-}" = 1 ] && QUIET_SEC=0; POLL_SEC=${POLL_SEC:-30}; MAX_WAIT_SEC=${MAX_WAIT_SEC:-43200}
 guard() { (cd /opt/tetrad && node --import tsx scripts/deploy-guard.ts "$@"); }
 notify() { echo "→ $1"; guard notify "$1" >/dev/null 2>&1 || echo "⚠ в Telegram не ушло"; }
 started=$(date +%s); quiet_since=""
 while :; do
   now=$(date +%s)
   if grep -q '# >>> ai-rating' "$CF"; then echo "Блок уже стоит"; exit 0; fi
-  if guard check >/dev/null 2>&1; then
+  if [ "${FORCE:-}" = 1 ] || guard check >/dev/null 2>&1; then
     [ -z "$quiet_since" ] && { quiet_since=$now; echo "$(date +%H:%M) никого нет — жду ещё $((QUIET_SEC/60)) мин"; }
     if [ $((now - quiet_since)) -ge "$QUIET_SEC" ]; then break; fi
   else
