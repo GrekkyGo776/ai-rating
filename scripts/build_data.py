@@ -36,6 +36,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "data" / "cache"
 OUT = ROOT / "site" / "data"
 ALIASES = ROOT / "config" / "aliases.json"
+OWN = ROOT / "config" / "own_benchmarks.json"
 UA = "ai-rating-site/1.0 (+https://ai.fizmat.guru)"
 
 HF_DATASET = "lmarena-ai/leaderboard-dataset"
@@ -49,6 +50,7 @@ ARENA_SECTIONS = [
     ("hard", "text_style_control", "hard_prompts"),
     ("web", "webdev", "overall"),
     ("vision", "vision", "overall"),
+    ("doc", "document", "overall"),
 ]
 EPOCH_ZIP = "https://epoch.ai/data/benchmark_data.zip"
 OPENROUTER = "https://openrouter.ai/api/v1/models"
@@ -153,7 +155,45 @@ def fetch_epoch() -> dict:
             "country": r.get("Country (of organization)") or "",
             "open": {"Open weights": True, "Closed weights": False}.get(r.get("Accessibility group")),
         })
-    return {"latest_model_date": max((m["date"] or "") for m in models), "models": models}
+    return {"latest_model_date": max((m["date"] or "") for m in models), "models": models, "bench": epoch_benchmarks(z)}
+
+
+# Отдельные тесты Epoch: (id на сайте, файл в архиве, колонка с баллом). Балл — доля от 0 до 1.
+EPOCH_BENCH = [
+    ("physics", "critpt_external.csv", "Accuracy"),                          # CritPt: исследовательская физика
+    ("mathx", "frontiermath_tiers_1_3_v2.csv", "Best score (across scorers)"),  # FrontierMath, уровни 1–3
+    ("science", "gpqa_diamond.csv", "Best score (across scorers)"),          # GPQA Diamond: наука
+    ("facts", "simpleqa_verified.csv", "Best score (across scorers)"),       # SimpleQA Verified: точность фактов
+]
+
+
+def epoch_benchmarks(z: zipfile.ZipFile) -> dict:
+    names = z.namelist()
+    meta_name = next((n for n in names if n.endswith("model_metadata.csv")), None)
+    display = {}
+    if meta_name:
+        for r in csv.DictReader(io.TextIOWrapper(z.open(meta_name), encoding="utf-8")):
+            if r.get("model_version"):
+                display[r["model_version"]] = r.get("display_name") or ""
+    out = {}
+    for bid, fname, col in EPOCH_BENCH:
+        path = next((n for n in names if n.endswith("/" + fname) or n == fname), None)
+        if not path:
+            continue
+        rows = []
+        for r in csv.DictReader(io.TextIOWrapper(z.open(path), encoding="utf-8")):
+            name = r.get("Name") or display.get(r.get("Model version", ""), "")
+            try:
+                v = float(r.get(col) or "")
+            except ValueError:
+                continue
+            if not name:
+                continue
+            se = r.get("stderr")
+            rows.append({"name": name, "v": round(v, 4), "se": round(float(se), 4) if se not in (None, "") else None,
+                         "date": r.get("Release date") or None})
+        out[bid] = rows
+    return out
 
 
 # ───────────────────────── OpenRouter ─────────────────────────
@@ -187,7 +227,8 @@ def fetch_openrouter() -> dict:
 # Полная история Arena: когда модель впервые появилась (дата для моделей, которых нет в Epoch и OpenRouter)
 # и места за последние 60 дней (стрелки ▲▼). Файл text_style_control — около 60 МБ, читаем только нужные колонки.
 HIST_SECTIONS = [("text", "text_style_control", "overall"), ("ru", "text_style_control", "russian"),
-                 ("math", "text_style_control", "math"), ("web", "webdev", "overall"), ("vision", "vision", "overall")]
+                 ("math", "text_style_control", "math"), ("web", "webdev", "overall"), ("vision", "vision", "overall"),
+                 ("doc", "document", "overall")]
 
 
 def fetch_arena_history() -> dict:
@@ -259,6 +300,18 @@ def strip_mode(name: str) -> tuple[str, str]:
     if not m:
         return name.strip(), ""
     return name[: m.start()].strip(), m.group(0).strip(" ()")
+
+
+BENCH_MODE_RE = re.compile(r"\s*\((?=[^)]*\b(?:max|xhigh|x-high|high|medium|low|minimal|none|fallback|reasoning|thinking|together|"
+                           r"fireworks|default|adaptive|effort|budget)\b)[^)]*\)\s*$", re.I)
+
+
+def bench_name(name: str) -> str:
+    while True:
+        n2 = BENCH_MODE_RE.sub("", name)
+        if n2 == name:
+            return name.strip()
+        name = n2
 
 
 def norm(name: str) -> str:
@@ -364,6 +417,30 @@ def merge(status: dict | None = None) -> dict:
         if e["date"]:
             m["date"] = e["date"]
 
+    for bid, rows in (epoch.get("bench") or {}).items():
+        for r in rows:
+            m = get(key(bench_name(r["name"])))
+            cur = m.setdefault("bench", {}).get(bid)
+            if cur is None or r["v"] > cur["v"]:
+                lo = hi = None
+                if r["se"]:
+                    lo, hi = max(0.0, r["v"] - 1.96 * r["se"]), min(1.0, r["v"] + 1.96 * r["se"])
+                m["bench"][bid] = {"v": r["v"], "lo": round(lo, 4) if lo is not None else None, "hi": round(hi, 4) if hi is not None else None}
+
+    own = json.loads(OWN.read_text(encoding="utf-8")) if OWN.exists() else {}
+    for oid, ob in own.items():
+        if oid.startswith("_"):
+            continue
+        for r in ob.get("results", []):
+            n, ex = r["n"], r["exact"]
+            p, z = ex / n, 1.96
+            c = (p + z * z / (2 * n)) / (1 + z * z / n)
+            h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+            get(key(r["model"])).setdefault("own", {})[oid] = {
+                "v": round(p, 4), "lo": round(c - h, 4), "hi": round(c + h, 4), "n": n, "exact": ex,
+                "pm1": r.get("pm1"), "stricter": r.get("stricter"), "softer": r.get("softer"),
+                "sum_ai": r.get("sum_ai"), "sum_exp": r.get("sum_exp")}
+
     prices = {}
     for p in orouter["models"]:
         prices.setdefault(key(p["name"]), p)
@@ -374,7 +451,8 @@ def merge(status: dict | None = None) -> dict:
         a = m["arena"]
         keep = ("eci" in m and (m.get("date") or "") >= "2025-01-01") \
             or (a.get("text", {}).get("rank", 999) <= 220) \
-            or any(a.get(s, {}).get("rank", 999) <= 90 for s in ("web", "vision"))
+            or any(a.get(s, {}).get("rank", 999) <= 90 for s in ("web", "vision", "doc")) \
+            or bool(m.get("own"))
         if not keep:
             continue
         p = prices.get(k)
@@ -387,6 +465,8 @@ def merge(status: dict | None = None) -> dict:
             "date": m.get("date") or (p or {}).get("created") or arena_date(m.get("aname") or k, ahist["first_seen"].get(k)),
             "dsrc": "epoch" if m.get("date") else "openrouter" if (p or {}).get("created") else "arena" if ahist["first_seen"].get(k) else None,
             "eci": m.get("eci"),
+            "bench": m.get("bench") or {},
+            "own": m.get("own") or {},
             "arena": a,
             "price": {"in": p["in"], "out": p["out"]} if p else None,
             "ctx": (p or {}).get("context"),
@@ -406,6 +486,7 @@ def merge(status: dict | None = None) -> dict:
             "epoch": {"latest_model": epoch.get("latest_model_date"), "url": "https://epoch.ai/benchmarks"},
             "openrouter": {"url": "https://openrouter.ai/models"},
         },
+        "own": {oid: {k: v for k, v in ob.items() if k != "results"} for oid, ob in own.items() if not oid.startswith("_")},
         "models": out,
     }
     OUT.mkdir(parents=True, exist_ok=True)

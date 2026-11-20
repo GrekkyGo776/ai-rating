@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#05070f">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/golos-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=5">
+<link rel="stylesheet" href="assets/css/main.css?v=7">
 </head>
 <body>
 
@@ -39,8 +39,7 @@
       <h2 id="h-leaders">Кто впереди <em>в каждом зачёте</em></h2>
       <p>Первое место в каждом рейтинге и кто идёт следом. Нажмите на карточку — откроется весь зачёт с погрешностями и группами ничьих.</p>
     </div>
-    <div class="leaders" id="leaderGrid"><div class="loading">Загружаю…</div></div>
-    <div class="zachet" id="zachet" hidden></div>
+    <div id="leaderGrid"><div class="loading">Загружаю…</div></div>
   </div></section>
 
   <section class="band" id="pick" aria-labelledby="h-pick"><div class="wrap">
@@ -60,10 +59,11 @@
     <div class="sec-head">
       <div class="eyebrow">Все модели</div>
       <h2 id="h-table">Полная <em>таблица</em></h2>
-      <p>Нажмите на заголовок колонки, чтобы отсортировать. Раздел Arena переключается в списке: общий зачёт, русский язык, математика, код и другие.</p>
+      <p>Нажмите на заголовок колонки, чтобы отсортировать. Колонки «Тесты» и «Arena» переключаются в списках: физика, сложная математика, факты, русский язык, документы и другие.</p>
     </div>
     <div class="controls">
       <div class="field"><label for="q">Поиск</label><input id="q" type="search" placeholder="Claude, GPT, Qwen…" autocomplete="off"></div>
+      <div class="field"><label for="tst">Тесты</label><select id="tst"></select></div>
       <div class="field"><label for="sec">Arena</label><select id="sec"></select></div>
       <div class="field"><label for="org">Разработчик</label><select id="org"><option value="">все</option></select></div>
       <label class="toggle" for="onlyOpen"><input type="checkbox" id="onlyOpen">открытые веса</label>
@@ -75,7 +75,7 @@
       <thead><tr>
         <th class="c-n">#</th>
         <th data-k="name"><button type="button">Модель</button></th>
-        <th class="r" data-k="eci"><button type="button">Тесты · Epoch</button></th>
+        <th class="r" data-k="eci"><button type="button" id="testHead">Тесты · Индекс Epoch</button></th>
         <th class="r" data-k="arena"><button type="button" id="arenaHead">Люди · Arena</button></th>
         <th class="r" data-k="price"><button type="button">$ за 1 млн токенов</button></th>
         <th class="r c-d" data-k="date"><button type="button">Вышла</button></th>
@@ -111,6 +111,8 @@
       <article><h3>Тесты · индекс Epoch AI</h3><p>Epoch Capabilities Index сводит десятки сложных тестов (математика, код, наука, рассуждения) в одну шкалу. Чем выше, тем сильнее модель. Рядом с числом — погрешность: близкие значения стоит считать ничьей.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
       <article><h3>Люди · Arena</h3><p>Люди задают вопрос, видят ответы двух неизвестных моделей и выбирают лучший. Из сотен тысяч голосов считается рейтинг Elo. Берём вариант с поправкой на стиль: длинный и нарядный ответ не получает бонуса. Есть отдельные зачёты по русскому языку, математике, коду, сайтам и картинкам.</p><p><a href="https://arena.ai" target="_blank" rel="noopener">arena.ai</a></p></article>
       <article><h3>Цены · OpenRouter</h3><p>Цена API в долларах за миллион токенов: это примерно 700 тысяч русских слов. Для сравнения берём смесь 3 : 1 — три части входа на одну часть выхода. В чат-приложениях с подпиской цены другие.</p><p><a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a></p></article>
+      <article><h3>Физика, математика, наука, факты</h3><p>Отдельные тесты из архива Epoch AI: CritPt — задачи уровня научной работы по физике, FrontierMath — новые задачи от математиков, GPQA Diamond — вопросы по естественным наукам уровня аспиранта, SimpleQA Verified — короткие вопросы о фактах (как часто модель выдумывает). Балл — доля верных ответов. У CritPt погрешность не публикуется.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
+      <article><h3>Проверка ЕГЭ — наш зачёт</h3><p>Модель проверяет решения второй части ЕГЭ по физике (21–26) по критериям ФИПИ, а мы сравниваем её балл с баллом эксперта. Публикуем только сводные цифры, без работ. Это пилот: замерены две модели, и регламент проверки настраивался на Claude Opus 5.5 — другим моделям он может подходить хуже. Погрешность — 95 % интервал для доли совпадений.</p></article>
       <article><h3>Ничья или отрыв</h3><p>Проценты от самого Elo ничего не значат: важна разница в очках. Разница 20 очков — лидера выбирают в 53 сравнениях из 100, 50 очков — в 57, 100 очков — в 64. Если интервалы погрешности двух моделей пересекаются, это ничья при любой разнице. Отрыв — интервалы не пересекаются, явный отрыв — от 50 очков Elo (или от 5 пунктов индекса Epoch).</p></article>
       <article><h3>Актуальные модели</h3><p>По умолчанию показываем модели, вышедшие за последние 12 месяцев: старые почти никогда не попадают в верх рейтингов, а графики с ними загромождены. Кнопка «показать все» в шапке возвращает все модели. Дата выхода — из Epoch, иначе из OpenRouter, иначе день первого появления модели в Arena (в таблице с пометкой «≈»).</p></article>
       <article><h3>Режимы и названия</h3><p>У многих моделей есть режимы «думать дольше» (High, Max). Для каждой модели показываем лучший режим. Названия из разных источников сводятся автоматически, сложные случаи — вручную. Модели, которых нет в источнике, показаны с прочерком.</p></article>
@@ -125,6 +127,6 @@
   <div>Сделано на <a href="https://fizmat.guru">fizmat.guru</a> · <span id="built"></span></div>
 </div></footer>
 
-<script src="assets/js/app.js?v=7" defer></script>
+<script src="assets/js/app.js?v=9" defer></script>
 </body>
 </html>
