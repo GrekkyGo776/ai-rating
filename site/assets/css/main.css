@@ -268,3 +268,21 @@ footer .wrap{display:grid;gap:10px}
 footer a{color:var(--muted)}
 .loading{padding:40px;text-align:center;color:var(--dim)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+.compare-link{width:fit-content;color:var(--sky);text-underline-offset:4px}
+.pair-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 18px}
+.pair-controls label{display:grid;gap:5px;font-size:.88rem;color:var(--muted)}
+.pair-controls select{width:100%;padding:10px;border:1px solid var(--line-2);border-radius:10px;background:var(--panel);color:var(--text)}
+.pair-table{min-width:0;table-layout:fixed;background:var(--bg-2)}
+.pair-table thead{display:table-header-group}
+.pair-table th,.pair-table td{padding:10px 14px;border-bottom:1px solid var(--line);text-align:left;overflow-wrap:anywhere}
+.pair-table thead th{position:static;white-space:normal;letter-spacing:normal;text-transform:none;font:600 1rem var(--sans)}
+.pair-table tbody tr{display:table-row}
+.pair-table tbody th{font-weight:400;color:var(--muted)}
+.pair-table td small{display:block;color:var(--muted);font-size:.8rem}
+@media(max-width:600px){
+  .pair-controls{grid-template-columns:1fr;gap:8px}
+  .pair-table th,.pair-table td{padding:8px 5px;font-size:.85rem}
+}
+
+.pair-summary{margin:0 0 14px;padding:12px 16px;border-left:3px solid var(--sky);background:var(--panel)}

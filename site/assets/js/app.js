@@ -45,7 +45,8 @@
   function setPeriod(d) {
     PERIOD = d; try { localStorage.setItem(PERIOD_KEY, String(d)); } catch (e) { /* без памяти */ }
     CUTOFF = PERIOD ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
-    renderStatus(); renderLeaders(); renderZachet(); renderTasks(); renderTable(); renderCharts();
+    if (openZ && !coversFamilies(zachetList(ZACHETS.find(z => z.id === openZ)).map(x => x.m))) openZ = null;
+    updateRankingOptions(); renderStatus(); renderLeaders(); renderZachet(); renderTasks(); renderTable(); renderCharts();
   }
 
   // ───────── метрики ─────────
@@ -59,6 +60,32 @@
   };
   const MLABEL = { eci: "тесты", text: "Arena", ru: "русский", math: "математика", code: "код", creative: "тексты", hard: "сложные", web: "веб",
     vision: "зрение", doc: "документы", physics: "физика", mathx: "сложная мат.", science: "наука", facts: "факты", ege: "ЕГЭ" };
+
+  // Поколения определяем по всему каталогу до применения фильтров.
+  const families = {
+    Anthropic: /^Claude (Opus|Fable|Haiku|Sonnet) (\d+)(?:\.(\d+))?\b/i,
+    OpenAI: /^(GPT)-(\d+)(?:\.(\d+))?\b/i,
+    Google: /^(Gemini) (\d+)(?:\.(\d+))?\b/i,
+  };
+  const currentIds = new Set();
+  function identifyGenerations() {
+    const lines = new Map();
+    for (const m of D.models) {
+      const match = families[m.org]?.exec(m.name);
+      if (!match) continue;
+      const [, line, major, minor = "0"] = match;
+      const version = major + "." + minor;
+      const latest = lines.get(line);
+      const order = latest ? version.localeCompare(latest.version, "en", {numeric: true}) : 1;
+      if (order > 0) lines.set(line, {version, ids: [m.id]});
+      if (order === 0) latest.ids.push(m.id);
+    }
+    for (const {ids} of lines.values()) for (const id of ids) currentIds.add(id);
+  }
+  function coversFamilies(candidates) {
+    const represented = new Set(candidates.filter(m => currentIds.has(m.id)).map(m => m.org));
+    return Object.keys(families).every(org => represented.has(org));
+  }
 
   function buildNorm() {
     for (const k of Object.keys(metric)) {
@@ -118,10 +145,19 @@
   let curTask = "study";
   function renderTasks() {
     const box = $("#tasks");
-    box.innerHTML = TASKS.map((t) => `<button type="button" class="chip" id="task-${t.id}" data-t="${t.id}" aria-pressed="${t.id === curTask}">${esc(t.name)}</button>`).join("");
+    const candidates = models();
+    const rankings = new Map(TASKS.map(t => [t.id, candidates.map(m => ({m, r: taskScore(t, m)})).filter(x => x.r)]));
+    const available = TASKS.filter(t => coversFamilies(rankings.get(t.id).map(x => x.m)));
+    if (!available.some(t => t.id === curTask)) curTask = available[0]?.id;
+    box.innerHTML = available.map((t) => `<button type="button" class="chip" id="task-${t.id}" data-t="${t.id}" aria-pressed="${t.id === curTask}">${esc(t.name)}</button>`).join("");
     box.onclick = (e) => { const b = e.target.closest("button[data-t]"); if (!b) return; curTask = b.dataset.t; renderTasks(); };
     const t = TASKS.find((x) => x.id === curTask);
-    const ranked = models().map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score).slice(0, 5);
+    if (!t) {
+      $("#podium").textContent = "За этот период нет подборок с участниками всех трёх семейств.";
+      $("#recipe").replaceChildren();
+      return;
+    }
+    const ranked = rankings.get(t.id).sort((a, b) => b.r.score - a.r.score).slice(0, 5);
     $("#podium").innerHTML = ranked.map(({ m, r }, i) => `<li>
       <span class="n">${i + 1}</span>
       <div class="nm"><b>${esc(m.name)}</b><div class="why"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org)}</span>${
@@ -207,7 +243,7 @@
   let openZ = null;
   function leaderCard(z) {
     const list = zachetList(z);
-    if (!list.length) return "";
+    if (!coversFamilies(list.map(x => x.m))) return "";
     const [a, b, c] = list;
     const v = b && (z.kind === "eci" || z.kind === "arena" || z.kind === "pct") ? verdict(a, b, z.kind) : null;
     return `<button type="button" class="lead" id="lead-${z.id}" data-z="${z.id}" aria-expanded="${openZ === z.id}" aria-controls="zachet">
@@ -229,6 +265,7 @@
       return `<div class="lgroup"><h3 class="lg-title">${esc(g.title)} <span>${esc(g.sub)}</span></h3><div class="leaders">${cards}</div>${
         open && open.g === g.id ? '<div class="zachet" id="zachet" hidden></div>' : ""}</div>`;
     }).join("");
+    if (!$("#leaderGrid").textContent.trim()) $("#leaderGrid").textContent = "За этот период нет зачётов с участниками всех трёх семейств.";
     $("#leaderGrid").onclick = (e) => {
       const b = e.target.closest("button[data-z]"); if (!b) return;
       openZ = openZ === b.dataset.z ? null : b.dataset.z; zAll = false;
@@ -292,6 +329,71 @@
     if (scroll) box.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
+  function bindPair() {
+    const options = [...D.models].sort((a, b) => a.name.localeCompare(b.name, "en", {numeric: true}));
+    const selects = [$("#pairA"), $("#pairB")];
+    const defaults = ["claudeopus55", "gpt62sol"];
+    const result = $("#pairResult");
+    if (options.length < 2) {
+      selects.forEach(select => { select.disabled = true; });
+      result.textContent = "В каталоге пока меньше двух моделей.";
+      return;
+    }
+    selects.forEach((select, i) => {
+      for (const m of options) select.add(new Option(m.name, m.id));
+      select.value = options.find(m => m.id === defaults[i])?.id || options[i].id;
+    });
+    if (selects[0].value === selects[1].value) selects[1].value = options.find(m => m.id !== selects[0].value).id;
+
+    function renderPair() {
+      const pair = selects.map(select => options.find(m => m.id === select.value));
+      selects.forEach((select, i) => {
+        for (const option of select.options) option.disabled = option.value === pair[1 - i].id;
+      });
+      const body = [];
+      function row(label, cells) {
+        if (cells.every(cell => cell == null)) return;
+        body.push(`<tr><th scope="row">${esc(label)}</th>${cells.map(cell => `<td>${cell ?? '<span class="na">Нет данных</span>'}</td>`).join("")}</tr>`);
+      }
+      function score(obj, key, format) {
+        if (obj?.[key] == null) return null;
+        const range = obj.lo != null && obj.hi != null ? `<small>${format(obj.lo)}–${format(obj.hi)}</small>` : "";
+        return `<b>${format(obj[key])}</b>${range}`;
+      }
+      for (const [id, name] of TESTS) {
+        row(name, pair.map(m => score(id === "eci" ? m.eci : id === "ege" ? m.own?.ege : m.bench?.[id], "v", id === "eci" ? v => nf(v, 1) : pctf)));
+      }
+      for (const [id, name] of SECTIONS) row("Arena · " + name, pair.map(m => score(m.arena?.[id], "elo", nf)));
+      for (const [key, name] of [["in", "Вход"], ["out", "Выход"]]) {
+        row(name + ", $ за 1 млн токенов", pair.map(m => m.price?.[key] == null ? null : m.price[key].toLocaleString("ru-RU", {maximumFractionDigits: 8})));
+      }
+      row("Контекст, токенов", pair.map(m => m.ctx == null ? null : nf(m.ctx)));
+      row("Дата выхода", pair.map(m => m.date ? (m.dsrc === "arena" ? "≈ " : "") + esc(m.date) : null));
+      result.innerHTML = `<table class="pair-table"><caption class="sr-only">Сравнение двух выбранных моделей</caption><thead><tr><th scope="col">Показатель</th>${pair.map(m => `<th scope="col">${esc(m.name)}</th>`).join("")}</tr></thead><tbody>${body.join("")}</tbody></table>`;
+      const [left, right] = pair.map(m => m.arena?.text);
+      if (left && right) {
+        const lead = left.elo >= right.elo ? 0 : 1;
+        const gap = Math.abs(left.elo - right.elo);
+        const summary = document.createElement("p");
+        summary.className = "pair-summary";
+        const close = left.lo != null && right.hi != null && right.lo != null && left.hi != null
+          && left.lo <= right.hi && right.lo <= left.hi;
+        summary.textContent = close ? "В общем зачёте Arena интервалы погрешности пересекаются. По правилам сайта это ничья."
+          : gap === 0 ? "В общем зачёте Arena модели набрали поровну."
+          : `В общем зачёте Arena у ${pair[lead].name} выше оценка. Разница — ${pts(gap)}. Расчётная доля побед по Elo — ${winOf(gap)} %.`;
+        result.prepend(summary);
+      }
+      if (pair.some(m => m.own?.ege) && D.own?.ege) {
+        const note = document.createElement("p");
+        note.className = "muted";
+        note.textContent = D.own.ege.caveat;
+        result.append(note);
+      }
+    }
+    selects.forEach(select => select.addEventListener("change", renderPair));
+    renderPair();
+  }
+
   // ───────── история (стрелки) ─────────
   function deltaFor(metricKey, id) {
     const days = Object.keys(H).filter((d) => H[d][metricKey]).sort();
@@ -309,7 +411,7 @@
 
   // ───────── таблица ─────────
   const st = { q: "", sec: "text", tst: "eci", org: "", open: false, price: false, k: "eci", dir: -1, all: false };
-  const testOf = (m) => metric[st.tst](m);
+  const testOf = (m) => metric[st.tst]?.(m) ?? null;
   const testCell = (m) => {
     const v = testOf(m);
     if (v == null) return '<span class="na">—</span>';
@@ -343,9 +445,9 @@
     const secVals = models().map((m) => m.arena[st.sec]?.elo).filter(Boolean);
     const sMax = Math.max(...secVals), sMin = secVals.sort((a, b) => a - b)[Math.floor(secVals.length * 0.05)] || 0;
     const built = new Date(D.built);
-    const label = "Arena · " + SECNAME[st.sec];
-    $("#arenaHead").textContent = "Люди · " + SECNAME[st.sec];
-    $("#testHead").textContent = "Тесты · " + TESTNAME[st.tst].split(" · ")[0];
+    const label = "Arena · " + (SECNAME[st.sec] || "нет зачётов");
+    $("#arenaHead").textContent = "Люди · " + (SECNAME[st.sec] || "нет зачётов");
+    $("#testHead").textContent = "Тесты · " + (TESTNAME[st.tst] || "нет зачётов").split(" · ")[0];
     $("#rows").innerHTML = list.map((m, i) => {
       const a = m.arena[st.sec];
       const isNew = m.date && (built - new Date(m.date)) / 864e5 <= 30;
@@ -355,7 +457,7 @@
         <td class="c-m"><div class="mcell"><b>${esc(m.name)}</b><div class="meta"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org || "—")} ${FLAGS[m.cc] || ""}</span>${
           m.open ? '<span class="tag open">открытые веса</span>' : ""}${isNew ? '<span class="tag new">новинка</span>' : ""}${
           a?.mode ? `<span>режим ${esc(a.mode)}</span>` : ""}</div></div></td>
-        <td class="c-e r" data-label="${esc("Тесты · " + TESTNAME[st.tst])}">${testCell(m)}</td>
+        <td class="c-e r" data-label="${esc("Тесты · " + (TESTNAME[st.tst] || "нет зачётов"))}">${testCell(m)}</td>
         <td class="c-a r" data-label="${esc(label)}">${a ? `<div class="score"><span class="meter"><i style="width:${aW}px"></i></span><b title="${nf(a.votes)} голосов, погрешность ${nf(a.lo)}–${nf(a.hi)}">${nf(a.elo)}</b><span class="rk">#${a.rank}</span>${deltaFor(st.sec, m.id)}</div>` : '<span class="na">нет в разделе</span>'}</td>
         <td class="c-p r">${m.price ? `<span class="price">${money(m.price.in)} <small>/</small> ${money(m.price.out)}</span>` : '<span class="na">—</span>'}</td>
         <td class="c-d r muted"${m.dsrc === "arena" ? ' title="Примерно: день первого появления в Arena"' : ""}>${m.dsrc === "arena" ? "≈ " : ""}${dayShort(m.date)}</td>
@@ -371,9 +473,19 @@
   }
   const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c; };
 
+  function updateRankingOptions() {
+    const current = models().filter(m => currentIds.has(m.id));
+    for (const [key, choices] of [["sec", SECTIONS], ["tst", TESTS]]) {
+      const allowed = choices.filter(([id]) => coversFamilies(current.filter(m => metric[id](m) != null)));
+      const select = $("#" + key);
+      if (!allowed.some(([id]) => id === st[key])) st[key] = allowed[0]?.[0] || "";
+      select.innerHTML = allowed.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join("") || '<option value="">Нет зачётов</option>';
+      select.disabled = !allowed.length;
+      select.value = st[key];
+    }
+  }
+
   function bindTable() {
-    $("#sec").innerHTML = SECTIONS.map(([id, nm]) => `<option value="${id}">${esc(nm)}</option>`).join("");
-    $("#tst").innerHTML = TESTS.map(([id, nm]) => `<option value="${id}">${esc(nm)}</option>`).join("");
     $("#tst").onchange = (e) => { st.tst = e.target.value; st.k = "eci"; st.dir = -1; renderTable(); };
     const orgs = [...new Set(D.models.map((m) => m.org).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     $("#org").innerHTML = `<option value="">все</option>` + orgs.map((o) => `<option>${esc(o)}</option>`).join("");
@@ -606,7 +718,7 @@
   ]).then(([d, h]) => {
     D = d; H = h || {};
     CUTOFF = PERIOD ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
-    buildNorm(); renderStatus(); renderLeaders(); renderTasks(); bindTable(); renderTable(); renderCharts();
+    buildNorm(); identifyGenerations(); updateRankingOptions(); bindPair(); renderStatus(); renderLeaders(); renderTasks(); bindTable(); renderTable(); renderCharts();
     let rt; let lastW = innerWidth;
     addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; renderCharts(); } }, 250); });
   }).catch((e) => {
