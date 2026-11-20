@@ -1,58 +1,35 @@
 #!/usr/bin/env bash
-# Разовая настройка ai.fizmat.guru на Selectel VDS (135.106.164.135). Запускать с мака:
+# Настройка ai.fizmat.guru на Selectel VDS (135.106.164.135). Запуск с мака:
 #   /Users/gregory/ai-rating/deploy/setup-vds.sh
-# Что делает:
-#   1. клонирует публичный репозиторий в /var/www/ai-rating (или обновляет его);
-#   2. ставит cron: раз в час git pull — так на сайт попадают данные, которые
-#      каждое утро собирает GitHub Actions;
-#   3. добавляет в Caddy блок ai.fizmat.guru между метками и делает мягкий reload
-#      (без перезапуска: Fizmat Hero и другие сайты не прерываются).
-# Перед запуском: проверить, что сейчас нет урока. Тестовый адрес работает сразу,
-# ai.fizmat.guru — после DNS-записи A ai → 135.106.164.135 в Porkbun.
+# 1. Клонирует публичный репозиторий в /var/www/ai-rating (или обновляет).
+# 2. Ставит cron: раз в час git pull — так на сайт приходят данные, которые каждое утро собирает GitHub Actions.
+# 3. Блок Caddy (deploy/caddy-ai-rating.conf) ставит служба ai-rating-caddy-wait: она ждёт, пока 10 минут подряд
+#    не будет уроков и учеников на досках (проверка Fizmat Hero: /opt/tetrad/scripts/deploy-guard.ts check),
+#    и только тогда делает reload — reload Caddy на секунду рвёт соединения досок. Ждёт до 12 часов, итог — в Telegram.
+#    Что происходит: ssh … journalctl -u ai-rating-caddy-wait -f
 set -euo pipefail
 HOST=root@135.106.164.135
 KEY=~/.ssh/tetrad_selectel_ed25519
-REPO=https://github.com/GrekkyGo776/ai-rating.git
-
-ssh -i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes "$HOST" bash -s <<REMOTE
+SSH=(ssh -i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes)
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+scp -q -i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes "$ROOT/deploy/caddy-ai-rating.conf" "$ROOT/deploy/caddy-wait.sh" "$HOST:/tmp/"
+"${SSH[@]}" "$HOST" bash -s <<'REMOTE'
 set -euo pipefail
 if [ -d /var/www/ai-rating/.git ]; then
   git -C /var/www/ai-rating pull --ff-only -q
 else
-  git clone -q --depth 50 $REPO /var/www/ai-rating
+  git clone -q https://github.com/GrekkyGo776/ai-rating.git /var/www/ai-rating
 fi
-cat > /etc/cron.d/ai-rating <<'CRON'
-17 * * * * root git -C /var/www/ai-rating pull --ff-only -q >/var/log/ai-rating-pull.log 2>&1
-CRON
-CF=/etc/caddy/Caddyfile
-if ! grep -q '# >>> ai-rating' \$CF; then
-  backup=\$CF.bak-ai-rating-\$(date +%F-%H%M)
-  cp \$CF \$backup
-  cat >> \$CF <<'CADDY'
-
-# >>> ai-rating
-ai.fizmat.guru, ai-rating.135-106-164-135.sslip.io {
-	root * /var/www/ai-rating/site
-	encode zstd gzip
-	@data path /data/*
-	header @data Cache-Control "no-cache"
-	@fonts path /assets/fonts/*
-	header @fonts Cache-Control "public, max-age=2592000, immutable"
-	@code path /assets/css/* /assets/js/*
-	header @code Cache-Control "public, max-age=3600"
-	file_server
-}
-# <<< ai-rating
-CADDY
-  # проверка с теми же переменными, что у службы caddy; при ошибке — откат
-  envs=\$(systemctl show caddy -p EnvironmentFiles --value | grep -o '/[^ ]*' || true)
-  if ! ( set -a; for f in \$envs; do [ -r "\$f" ] && . "\$f"; done; set +a
-         caddy validate --config \$CF --adapter caddyfile >/tmp/caddy-validate.log 2>&1 ); then
-    tail -3 /tmp/caddy-validate.log
-    cat \$backup > \$CF
-    echo "✗ Caddy не принял конфигурацию — вернул прежнюю"; exit 1
-  fi
-  systemctl reload caddy
+echo "17 * * * * root git -C /var/www/ai-rating pull --ff-only -q >/var/log/ai-rating-pull.log 2>&1" > /etc/cron.d/ai-rating
+install -m 0644 /tmp/caddy-ai-rating.conf /etc/caddy/ai-rating.conf
+install -m 0755 /tmp/caddy-wait.sh /usr/local/sbin/ai-rating-caddy-wait
+rm -f /tmp/caddy-ai-rating.conf /tmp/caddy-wait.sh
+if grep -q '# >>> ai-rating' /etc/caddy/Caddyfile; then
+  echo "✓ Блок Caddy уже стоит — перезагрузка не нужна"
+else
+  systemctl reset-failed ai-rating-caddy-wait >/dev/null 2>&1 || true
+  systemd-run --quiet --collect --unit=ai-rating-caddy-wait --description="ai.fizmat.guru: включить в Caddy, когда никого нет" \
+    /usr/local/sbin/ai-rating-caddy-wait
+  echo "✓ Служба ai-rating-caddy-wait ждёт тихого окна (journalctl -u ai-rating-caddy-wait -f)"
 fi
-echo "готово: https://ai-rating.135-106-164-135.sslip.io (и https://ai.fizmat.guru после DNS)"
 REMOTE
