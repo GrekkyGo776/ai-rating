@@ -3,6 +3,14 @@ name: Обновление данных
 on:
   schedule:
     - cron: "5 6 * * *"   # 09:05 по Москве
+    - cron: "37 6 * * *"  # 09:37, если сегодня ещё нет полной загрузки
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/update.yml"
+      - "scripts/build_data.py"
+      - "scripts/contra_data.py"
+      - "config/*.json"
   workflow_dispatch: {}
 
 permissions:
@@ -22,8 +30,36 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Проверить каталог и импорт результатов ЕГЭ
+        run: |
+          python -m unittest discover -s scripts
+          python -m unittest discover -s tests
       - name: Скачать и свести данные
-        run: python scripts/build_data.py
+        env:
+          BACKUP_RUN: ${{ github.event.schedule == '37 6 * * *' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          snapshot = json.loads(Path("site/data/models.json").read_text(encoding="utf-8"))
+          today = datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat()
+          sources = snapshot.get("status", {})
+          all_current = bool(sources) and all(
+              item.get("ok") and not item.get("cached")
+              and str(item.get("fetched", "")).startswith(today)
+              for item in sources.values()
+          )
+          if os.environ.get("BACKUP_RUN") == "true" and all_current:
+              print("Все источники уже обновлены сегодня.")
+          else:
+              subprocess.run([sys.executable, "scripts/build_data.py"], check=True)
+          PY
       - name: Сохранить данные в репозиторий
         run: |
           git config user.name "ai-rating bot"
