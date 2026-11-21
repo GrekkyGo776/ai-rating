@@ -30,7 +30,7 @@
   let D = null, H = {}, NORM = {};
 
   // Свежесть: показываем модели, вышедшие за выбранный срок (по умолчанию 12 месяцев; выбор запоминается в браузере).
-  const PERIODS = [[30, "1 месяц", "1 мес"], [91, "3 месяца", "3 мес"], [182, "6 месяцев", "6 мес"], [365, "12 месяцев", "12 мес"], [0, "все", "все"]];
+  const PERIODS = [[30, "1 месяц", "1 мес"], [91, "3 месяца", "3 мес"], [182, "6 месяцев", "6 мес"], [365, "12 месяцев", "12 мес"], [0, "все модели", "все"], [-1, "без даты", "без даты"]];
   const PERIOD_KEY = "ai-rating-period";
   let PERIOD = 365, CUTOFF = "";
   try {
@@ -38,14 +38,14 @@
     if (v != null && PERIODS.some(([d]) => String(d) === v)) PERIOD = +v;
     else if (localStorage.getItem("ai-rating-fresh") === "0") PERIOD = 0; // прежний флажок «за 12 месяцев»
   } catch (e) { /* без памяти */ }
-  const isFresh = (m) => !PERIOD || !m.date || m.date >= CUTOFF;
+  const isFresh = m => PERIOD === 0 || (PERIOD < 0 ? !freshRelease(m) : !!freshRelease(m) && m.date >= CUTOFF && m.date <= D.built.slice(0,10));
   const models = () => (PERIOD ? D.models.filter(isFresh) : D.models);
   const periodName = () => PERIODS.find(([d]) => d === PERIOD)[1];
-  const periodOptions = () => PERIODS.map(([d, nm]) => `<option value="${d}"${d === PERIOD ? " selected" : ""}>${d ? "за " + nm : "все модели"}</option>`).join("");
+  const periodOptions = () => PERIODS.map(([d, nm]) => `<option value="${d}"${d === PERIOD ? " selected" : ""}>${d > 0 ? "за " + nm : nm}</option>`).join("");
   function setPeriod(d) {
     PERIOD = d; try { localStorage.setItem(PERIOD_KEY, String(d)); } catch (e) { /* без памяти */ }
-    CUTOFF = PERIOD ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
-    if (openZ && !coversFamilies(zachetList(ZACHETS.find(z => z.id === openZ)).map(x => x.m))) openZ = null;
+    CUTOFF = PERIOD > 0 ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
+    if (openZ) { const z = ZACHETS.find(x => x.id === openZ); const list = zachetList(z); if (!list.length || (!z.own && !coversFamilies(list.map(x => x.m)))) openZ = null; }
     updateRankingOptions(); renderStatus(); renderLeaders(); renderZachet(); renderTasks(); renderTable(); renderCharts();
   }
 
@@ -174,14 +174,17 @@
   // Elo: разница D очков → лидера выбирают в 100/(1+10^(−D/400)) случаях из 100.
   // Ничья — интервалы погрешности пересекаются; отрыв — не пересекаются; явный отрыв — от 50 очков Elo.
   const winOf = (d) => Math.round(100 / (1 + 10 ** (-d / 400)));
-  const overlap = (a, b) => a.lo != null && b.hi != null && b.hi >= a.lo;
+  const overlap = (a,b) => [a.lo,a.hi,b.lo,b.hi].every(Number.isFinite) && a.lo <= b.hi && b.lo <= a.hi;
   const pts = (n) => `${nf(n, 0)} ${plural(Math.round(n), "очко", "очка", "очков")}`;
   function verdict(a, b, kind) {
     const d = a.v - b.v;
-    if (overlap(a, b)) return { cls: "tie", text: "ничья" };
+    if (overlap(a,b)) return {cls:"tie", text:"интервалы пересекаются"};
+    if ([a.lo,a.hi,b.lo,b.hi].some(x => x == null)) {
+      const diff = kind === "pct" ? nf(100*d,1)+" п.п." : nf(d,1);
+      return {cls:"na", text:"Разница "+diff+" · интервал не опубликован"};
+    }
     if (kind === "eci") return { cls: d >= 5 ? "far" : "lead", text: `${d >= 5 ? "явный отрыв" : "отрыв"} ${nf(d, 1)}` };
     if (kind === "pct") {
-      if (a.lo == null || b.hi == null) return d < 0.02 ? { cls: "tie", text: "почти ничья", near: true } : { cls: "na", text: `впереди на ${nf(d * 100, 1)} п.п.` };
       return { cls: d >= 0.05 ? "far" : "lead", text: `${d >= 0.05 ? "явный отрыв" : "отрыв"} ${nf(d * 100, 1)} п.п.` };
     }
     return { cls: d >= 50 ? "far" : "lead", text: `${d >= 50 ? "явный отрыв" : "отрыв"} ${pts(d)} · выбирают в ${winOf(d)} из 100` };
@@ -197,7 +200,7 @@
     { id: "eci", g: "tests", what: "Сильнее всех по тестам", unit: "индекс Epoch", kind: "eci",
       about: "Индекс Epoch AI: сводная оценка по десяткам сложных тестов — математика, код, наука, рассуждения. Больше — сильнее." },
     { id: "physics", g: "tests", what: "Физика", unit: "% задач · CritPt", kind: "pct", src: "bench",
-      about: "CritPt: задачи уровня научной работы по физике — от конденсированного состояния до астрофизики, их составили сами исследователи. Это намного сложнее олимпиад. Погрешность источник не публикует, поэтому небольшую разницу считайте ничьей." },
+      about: "CritPt: задачи уровня научной работы по физике — от конденсированного состояния до астрофизики, их составили сами исследователи. Это намного сложнее олимпиад. Погрешность источник не публикует, поэтому устойчивость небольших различий по этим данным неизвестна." },
     { id: "mathx", g: "tests", what: "Сложная математика", unit: "% задач · FrontierMath", kind: "pct", src: "bench",
       about: "FrontierMath, уровни 1–3: новые задачи от профессиональных математиков, которых нет в интернете. Ответ проверяется автоматически." },
     { id: "science", g: "tests", what: "Наука", unit: "% верно · GPQA Diamond", kind: "pct", src: "bench",
@@ -216,7 +219,7 @@
       about: "Вопросы с картинкой: фото, схемы, графики, скриншоты. Слепой выбор лучшего ответа." },
     { id: "doc", g: "people", what: "Документы и PDF", unit: "Elo · Arena, документы", kind: "arena", sec: "doc",
       about: "Человек загружает документ — PDF, статью, учебник — и задаёт по нему вопрос. Слепой выбор лучшего ответа." },
-    { id: "ege", g: "practice", what: "Проверка ЕГЭ по физике", unit: "% совпадений с экспертом · fizmat.guru", kind: "pct", src: "own", own: true,
+    { id: "ege", g: "practice", what: "Проверка ЕГЭ по физике", unit: "совпадений с экспертом · fizmat.guru", kind: "pct", src: "own", own: true,
       about: "Наш зачёт. Модель проверяет решения второй части ЕГЭ по физике (задания 21–26) по критериям ФИПИ, как эксперт на экзамене. Считаем, как часто её балл совпал с баллом настоящего эксперта." },
     { id: "cheap", g: "practice", what: "Выгоднее всех", unit: "за 1 млн токенов при сильном качестве", kind: "cheap",
       about: "Модели с сильным качеством по тестам и Arena, по оценке «качество за деньги» (рецепт — в подборе «Дёшево и сердито»)." },
@@ -225,7 +228,7 @@
   ];
   function zachetList(z) {
     if (z.kind === "eci") return models().filter((m) => m.eci).sort((a, b) => b.eci.v - a.eci.v).map((m) => ({ m, v: m.eci.v, lo: m.eci.lo, hi: m.eci.hi }));
-    if (z.kind === "pct") return models().filter((m) => m[z.src]?.[z.id]).sort((a, b) => b[z.src][z.id].v - a[z.src][z.id].v)
+    if (z.kind === "pct") return (z.own ? D.models : models()).filter((m) => m[z.src]?.[z.id]).sort((a, b) => b[z.src][z.id].v - a[z.src][z.id].v)
       .map((m) => ({ m, ...m[z.src][z.id] }));
     if (z.kind === "arena") return models().filter((m) => m.arena[z.sec]).sort((a, b) => b.arena[z.sec].elo - a.arena[z.sec].elo)
       .map((m) => ({ m, v: m.arena[z.sec].elo, lo: m.arena[z.sec].lo, hi: m.arena[z.sec].hi, votes: m.arena[z.sec].votes }));
@@ -234,7 +237,7 @@
       return models().map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score)
         .map((x) => ({ m: x.m, v: blended(x.m), score: x.r.score }));
     }
-    return models().filter((m) => m.date && (m.eci || (m.arena.text && m.arena.text.rank <= 60)))
+    return models().filter((m) => freshRelease(m) && (m.eci || (m.arena.text && m.arena.text.rank <= 60)))
       .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date }));
   }
   const pctf = (v) => `${nf(v * 100, 1)} %`;
@@ -243,7 +246,7 @@
   let openZ = null;
   function leaderCard(z) {
     const list = zachetList(z);
-    if (!coversFamilies(list.map(x => x.m))) return "";
+    if (!list.length || (!z.own && !coversFamilies(list.map(x => x.m)))) return "";
     const [a, b, c] = list;
     const v = b && (z.kind === "eci" || z.kind === "arena" || z.kind === "pct") ? verdict(a, b, z.kind) : null;
     return `<button type="button" class="lead" id="lead-${z.id}" data-z="${z.id}" aria-expanded="${openZ === z.id}" aria-controls="zachet">
@@ -251,10 +254,10 @@
       <span class="who">${esc(a.m.name)}</span>
       <span class="org"><i class="dot" style="background:${color(a.m.org)}"></i>${esc(a.m.org)} ${FLAGS[a.m.cc] || ""}</span>
       <span class="val"><b>${zVal(z, a)}</b><span>${esc(z.unit)}</span></span>
-      ${v ? `<span class="verdict ${v.cls}">${v.cls === "tie" ? `${v.near ? "почти ничья" : "ничья"} с ${esc(b.m.name)}` : esc(v.text)}</span>` : ""}
+      ${v ? `<span class="verdict ${v.cls}">${esc(v.text)}</span>` : ""}
       ${b ? `<span class="runner">Дальше: ${esc(b.m.name)} (${zVal(z, b)})${c ? `, ${esc(c.m.name)} (${zVal(z, c)})` : ""}</span>` : ""}
-      ${z.own ? `<span class="pilot">пилот · ${nf(list.length)} ${plural(list.length, "модель", "модели", "моделей")}</span>` : ""}
-      <span class="open-all">${openZ === z.id ? "Свернуть зачёт" : `Весь зачёт · ${nf(list.length)}`}</span>
+      ${z.own ? `<span class="pilot">Пилот за весь период · ${nf(list.length)} ${plural(list.length,"модель","модели","моделей")}${new Set(list.map(x=>x.n)).size===1 ? " · "+nf(a.n)+" работ" : ""}</span>` : ""}
+      <span class="open-all">${openZ === z.id ? "Свернуть зачёт" : `Весь зачёт · ${nf(list.length)} из ${nf(z.own ? D.models.length : models().length)}`}</span>
     </button>`;
   }
   function renderLeaders() {
@@ -297,14 +300,14 @@
         const d = groups[gi - 1][0].v - g[0].v;
         html += `<li class="z-gap">${z.kind === "arena" ? `Ступенька: ${pts(d)} — модели выше выбирают примерно в ${winOf(d)} из 100 сравнений` : z.kind === "pct" ? `Ступенька: ${nf(d * 100, 1)} п.п.` : `Ступенька: ${nf(d, 1)} по индексу`}</li>`;
       }
-      if (withCi && g.length > 1) html += `<li class="z-group">${gi === 0 ? "Группа лидеров" : "Группа"} · ничья между ${g.length} ${plural(g.length, "моделью", "моделями", "моделями")}</li>`;
+      if (withCi && g.length > 1) html += `<li class="z-group">${gi === 0 ? "Группа лидеров" : "Группа"} · близкие оценки у ${g.length} ${plural(g.length,"модели","моделей","моделей")}</li>`;
       for (const x of g) {
         place += 1;
         let note = "";
-        if (z.kind === "arena") note = x === top ? "лидер" : overlap(top, x) ? "ничья с лидером" : `лидера выбирают в ${winOf(top.v - x.v)} из 100`;
-        else if (z.kind === "eci") note = x === top ? "лидер" : overlap(top, x) ? "ничья с лидером" : `−${nf(top.v - x.v, 1)} к лидеру`;
-        else if (z.kind === "pct") note = (x === top ? "лидер" : withCi && overlap(top, x) ? "ничья с лидером" : `−${nf((top.v - x.v) * 100, 1)} п.п. к лидеру`)
-          + (z.own ? ` · совпал в ${x.exact} из ${x.n} · строже ${x.stricter}, мягче ${x.softer}` : "");
+        if (z.kind === "arena") note = x === top ? "лидер" : overlap(top, x) ? "интервал пересекается с лидером" : `лидера выбирают в ${winOf(top.v - x.v)} из 100`;
+        else if (z.kind === "eci") note = x === top ? "лидер" : overlap(top, x) ? "интервал пересекается с лидером" : `−${nf(top.v - x.v, 1)} к лидеру`;
+        else if (z.kind === "pct") note = (x === top ? "лидер" : withCi && overlap(top, x) ? "интервал пересекается с лидером" : `−${nf((top.v - x.v) * 100, 1)} п.п. к лидеру`)
+          + (z.own ? ` · точно ${x.exact}/${x.n}, в пределах 1 балла ${x.pm1}/${x.n} · ниже ${x.stricter}, выше ${x.softer}` : "");
         else if (z.kind === "cheap") note = `оценка ${Math.round(x.score * 100)}`;
         else note = x.m.eci ? `тесты ${nf(x.m.eci.v, 1)}` : x.m.arena.text ? `Arena ${nf(x.m.arena.text.elo)}` : "";
         html += `<li class="z-row g${gi % 2}">
@@ -319,7 +322,7 @@
     const ownMeta = z.own ? (D.own || {})[z.id] || {} : null;
     box.innerHTML = `<div class="z-head"><div><div class="eyebrow">Весь зачёт · ${nf(list.length)} ${plural(list.length, "модель", "модели", "моделей")}</div><h3>${esc(z.what)}</h3><p>${esc(z.about)}</p>
       ${ownMeta ? `<p><b>Набор.</b> ${esc(ownMeta.set)}</p><p><b>Как мерили.</b> ${esc(ownMeta.method)}</p><p class="z-caveat">${esc(ownMeta.caveat)}</p>` : ""}
-      ${withCi ? `<p class="z-legend"><span class="ci-demo"></span> полоска — погрешность. Пересекается с лидером группы — ничья.</p>` : ""}</div>
+      ${withCi ? `<p class="z-legend"><span class="ci-demo"></span> полоска — интервал оценки. В одной группе интервалы пересекаются с интервалом первого участника.</p>` : ""}</div>
       <button type="button" class="btn" id="zClose">Свернуть</button></div>
       <ol class="z-list">${html}</ol>
       ${list.length > Z_LIMIT && !zAll ? `<div class="more"><button type="button" class="btn" id="zMore">Показать все ${nf(list.length)}</button></div>` : ""}`;
@@ -329,70 +332,256 @@
     if (scroll) box.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
+  const focusNames = {all:"Все показатели", photo:"Проверить фото решения", ege:"Оценить работу ЕГЭ", web:"Сделать учебную страницу"};
+  const freshRelease = m => ["epoch","epoch_benchmark"].includes(m.dsrc) ? m.date : null;
+  const safeCount = value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : null;
+  const usd = value => "$" + value.toLocaleString("ru-RU",{maximumFractionDigits:8});
+  const dateLabel = date => date ? date.slice(0,10).split("-").reverse().join(".") : "—";
+  const modalLabel = {image:"фото", text:"текст", audio:"аудио", video:"видео", file:"файлы", pdf:"PDF"};
+  const intervalText = (obj, id) => {
+    if (id === "eci") return "90% байесовский интервал";
+    if (id === "ege") return "95% интервал Уилсона";
+    if (TESTNAME[id]) return "≈95% по стандартной ошибке";
+    return "Интервал Arena";
+  };
+
+  function quoteRequest(model, input, output) {
+    if (input == null || output == null) return {message:"Введите целое число токенов от нуля"};
+    if ((model.ctx != null && input + output > model.ctx) || (model.max_output != null && output > model.max_output))
+      return {message:"Запрос не помещается", hint:"Превышен лимит контекста или ответа"};
+    const tiers = (model.price?.tiers || []).filter(t => input >= t.min_prompt_tokens)
+      .sort((a,b) => b.min_prompt_tokens - a.min_prompt_tokens);
+    const inputRate = tiers[0]?.in ?? model.price?.in;
+    const outputRate = tiers[0]?.out ?? model.price?.out;
+    if (!model.price || (input > 0 && !Number.isFinite(inputRate)) || (output > 0 && !Number.isFinite(outputRate)))
+      return {message:"Тариф не опубликован"};
+    const amount = (input * (inputRate || 0) + output * (outputRate || 0)) / 1e6;
+    const notes = [];
+    if (tiers.length) notes.push("Тариф длинного запроса от " + nf(tiers[0].min_prompt_tokens) + " токенов");
+    if (model.ctx == null) notes.push("Контекст не проверен");
+    if (model.max_output == null) notes.push("Отдельный лимит ответа неизвестен");
+    return {amount, hint:notes.join(" · ")};
+  }
+
   function bindPair() {
-    const options = [...D.models].sort((a, b) => a.name.localeCompare(b.name, "en", {numeric: true}));
-    const selects = [$("#pairA"), $("#pairB")];
-    const defaults = ["claudeopus55", "gpt62sol"];
+    const options = [...D.models].sort((a,b) => a.name.localeCompare(b.name,"ru",{numeric:true}));
+    const byId = new Map(options.map(m => [m.id,m]));
+    const url = new URL(location.href);
+    const params = url.searchParams;
+    const selects = [$("#pairA"),$("#pairB")];
+    const inputs = [$("#pairInput"),$("#pairOutput")];
+    const searches = [$("#pairSearchA"),$("#pairSearchB")];
+    const matchStatus = [$("#pairMatchesA"),$("#pairMatchesB")];
+    const fold = value => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
+    const searchIndex = new Map(options.map(m=>[m.id,fold(m.name+" "+(m.org || "")+" "+(m.or || ""))]));
+    const paramNames = ["a","b"];
+    const defaults = ["gpt62astra","gemini4neon"];
     const result = $("#pairResult");
+    const variantChoices = new Map();
+    for (const [key,value] of params) {
+      if (/^mode_[01]_[a-z]+$/.test(key) && value.length <= 250) variantChoices.set(key,value);
+    }
+    let focus = Object.hasOwn(focusNames,params.get("focus")) ? params.get("focus") : "all";
     if (options.length < 2) {
-      selects.forEach(select => { select.disabled = true; });
+      [...selects,...searches].forEach(el => { el.disabled = true; });
       result.textContent = "В каталоге пока меньше двух моделей.";
+      $("#pairShare").disabled = true;
+      $("#pairCost").hidden = true;
       return;
     }
-    selects.forEach((select, i) => {
-      for (const m of options) select.add(new Option(m.name, m.id));
-      select.value = options.find(m => m.id === defaults[i])?.id || options[i].id;
+    let stored = [];
+    try { stored = JSON.parse(localStorage.getItem("ai-rating-pair") || "[]"); } catch {}
+    selects.forEach((select,i) => {
+      for (const m of options) select.add(new Option(m.name,m.id));
+      const wanted = params.get(paramNames[i]) || stored?.[i];
+      select.value = [wanted,defaults[i],options[i].id].find(id => byId.has(id));
     });
     if (selects[0].value === selects[1].value) selects[1].value = options.find(m => m.id !== selects[0].value).id;
+    inputs.forEach((input,i) => {
+      const value = params.get(i ? "output" : "input");
+      if (value != null && safeCount(value) != null) input.value = value;
+    });
+    if (params.has("input") || params.has("output") || params.has("cost")) $("#pairCost").open = true;
+    if (paramNames.some(n => params.has(n) && !byId.has(params.get(n)))) $("#pairNotice").textContent = "Одна из моделей ссылки отсутствует в текущем каталоге. Показана доступная замена.";
+    const selected = () => selects.map(s => byId.get(s.value));
+
+    function filterPicker(i, keep = selects[i].value) {
+      const query = fold(searches[i].value.trim());
+      const other = selects[1-i].value;
+      const fragment = document.createDocumentFragment();
+      let count = 0;
+      for (const model of options) {
+        const matches = !query || searchIndex.get(model.id).includes(query);
+        if (!matches && model.id !== keep) continue;
+        const option = new Option(model.name,model.id);
+        option.disabled = model.id === other && model.id !== keep;
+        if (matches && !option.disabled) count++;
+        fragment.appendChild(option);
+      }
+      selects[i].replaceChildren(fragment);
+      selects[i].value = keep;
+      matchStatus[i].textContent = !query ? "" : count ? "Найдено "+nf(count)
+        : "Совпадений нет. Выбранная модель сохранена.";
+    }
+    searches.forEach((el,i)=>el.addEventListener("input",()=>filterPicker(i)));
+
+    function shareURL() {
+      const u = new URL(location.href);
+      u.searchParams.set("compare","1");
+      selects.forEach((s,i) => u.searchParams.set(paramNames[i],s.value));
+      if (focus === "all") u.searchParams.delete("focus"); else u.searchParams.set("focus",focus);
+      for (const key of [...u.searchParams.keys()]) if (key.startsWith("mode_")) u.searchParams.delete(key);
+      for (const [key,value] of variantChoices) u.searchParams.set(key,value);
+      u.searchParams.delete("cost");
+      inputs.forEach((el,i) => {
+        const key = i ? "output" : "input";
+        if ($("#pairCost").open && safeCount(el.value) != null) u.searchParams.set(key,el.value);
+        else u.searchParams.delete(key);
+      });
+      if ($("#pairCost").open) u.searchParams.set("cost","1");
+      u.hash = "compare";
+      return u;
+    }
+
+    function syncLink(updateAddress = false) {
+      const u = shareURL();
+      $("#pairPermalink").href = u.href;
+      if (updateAddress) history.replaceState(null,"",u);
+    }
+
+    function renderQuote() {
+      const fx = D.fx;
+      const age = Math.floor((Date.now() - Date.parse(fx?.date + "T00:00:00+03:00")) / 864e5);
+      const rub = Number.isFinite(fx?.usd_rub) && fx.usd_rub > 0 && age >= 0 && age <= 7;
+      const input = safeCount(inputs[0].value), output = safeCount(inputs[1].value);
+      const costs = selected().map(m => {
+        const q = quoteRequest(m,input,output);
+        const sum = q.amount == null ? esc(q.message) : usd(q.amount) + (rub ? " · " + nf(q.amount*fx.usd_rub,2) + " ₽" : "");
+        return "<div><b>"+esc(m.name)+"</b><strong>"+sum+"</strong><small>"+esc(q.hint || "")+"</small></div>";
+      }).join("");
+      $("#pairQuote").innerHTML = '<div class="pair-quote">'+costs+"</div>" +
+        (rub ? '<p><a href="https://www.cbr.ru/currency_base/daily/" target="_blank" rel="noopener">Курс ЦБ РФ</a> на '+dateLabel(fx.date)+" · "+nf(fx.usd_rub,4)+" ₽ за доллар.</p>" : "<p>Цена в долларах. Свежего курса ЦБ РФ для пересчёта в рубли нет.</p>");
+      syncLink();
+    }
 
     function renderPair() {
-      const pair = selects.map(select => options.find(m => m.id === select.value));
-      selects.forEach((select, i) => {
-        for (const option of select.options) option.disabled = option.value === pair[1 - i].id;
-      });
+      const pair = selected();
+      selects.forEach((select,i) => filterPicker(i,pair[i].id));
+      $("#pairFocus").innerHTML = Object.entries(focusNames).map(([id,title]) =>
+        '<button type="button" class="chip" data-focus="'+id+'" aria-pressed="'+(focus===id)+'">'+title+"</button>").join("");
       const body = [];
-      function row(label, cells) {
-        if (cells.every(cell => cell == null)) return;
-        body.push(`<tr><th scope="row">${esc(label)}</th>${cells.map(cell => `<td>${cell ?? '<span class="na">Нет данных</span>'}</td>`).join("")}</tr>`);
+      function group(label) {
+        body.push('<tr class="pair-group"><th scope="rowgroup" colspan="3">'+esc(label)+"</th></tr>");
       }
-      function score(obj, key, format) {
-        if (obj?.[key] == null) return null;
-        const range = obj.lo != null && obj.hi != null ? `<small>${format(obj.lo)}–${format(obj.hi)}</small>` : "";
-        return `<b>${format(obj[key])}</b>${range}`;
+      function row(label,cells,meta="") {
+        body.push('<tr><th scope="row">'+esc(label)+meta+"</th>"+cells.map(x=>"<td>"+(x??'<span class="na">Нет замера</span>')+"</td>").join("")+"</tr>");
       }
-      for (const [id, name] of TESTS) {
-        row(name, pair.map(m => score(id === "eci" ? m.eci : id === "ege" ? m.own?.ege : m.bench?.[id], "v", id === "eci" ? v => nf(v, 1) : pctf)));
+      function conditionRow(label,values,format) {
+        if (values.some(v=>v!=null)) row(label,values.map(v=>v==null?null:format(v)));
       }
-      for (const [id, name] of SECTIONS) row("Arena · " + name, pair.map(m => score(m.arena?.[id], "elo", nf)));
-      for (const [key, name] of [["in", "Вход"], ["out", "Выход"]]) {
-        row(name + ", $ за 1 млн токенов", pair.map(m => m.price?.[key] == null ? null : m.price[key].toLocaleString("ru-RU", {maximumFractionDigits: 8})));
+      function measures(id,m) {
+        if (id==="eci") return m.eci;
+        if (id==="ege") return m.own?.ege;
+        return m.bench?.[id] || m.arena?.[id];
       }
-      row("Контекст, токенов", pair.map(m => m.ctx == null ? null : nf(m.ctx)));
-      row("Дата выхода", pair.map(m => m.date ? (m.dsrc === "arena" ? "≈ " : "") + esc(m.date) : null));
-      result.innerHTML = `<table class="pair-table"><caption class="sr-only">Сравнение двух выбранных моделей</caption><thead><tr><th scope="col">Показатель</th>${pair.map(m => `<th scope="col">${esc(m.name)}</th>`).join("")}</tr></thead><tbody>${body.join("")}</tbody></table>`;
-      const [left, right] = pair.map(m => m.arena?.text);
-      if (left && right) {
-        const lead = left.elo >= right.elo ? 0 : 1;
-        const gap = Math.abs(left.elo - right.elo);
-        const summary = document.createElement("p");
-        summary.className = "pair-summary";
-        const close = left.lo != null && right.hi != null && right.lo != null && left.hi != null
-          && left.lo <= right.hi && right.lo <= left.hi;
-        summary.textContent = close ? "В общем зачёте Arena интервалы погрешности пересекаются. По правилам сайта это ничья."
-          : gap === 0 ? "В общем зачёте Arena модели набрали поровну."
-          : `В общем зачёте Arena у ${pair[lead].name} выше оценка. Разница — ${pts(gap)}. Расчётная доля побед по Elo — ${winOf(gap)} %.`;
-        result.prepend(summary);
+      function measure(label,id){
+        const bases=pair.map(m=>measures(id,m)), isArena=!!SECNAME[id];
+        const identity = variant => variant.source_id || variant.source_label || variant.mode || "";
+        const samples=bases.map((base,i) => {
+          const choice=variantChoices.get("mode_"+i+"_"+id);
+          return choice && base?.variants?.find(v=>identity(v)===choice) || base;
+        });
+        if (!samples.some(Boolean) && focus==="all") return;
+        const key=isArena?"elo":"v";
+        const format=isArena?v=>nf(v):id==="eci"?v=>nf(v,1):pctf;
+        const coverage=options.filter(m=>measures(id,m)?.[key]!=null).length;
+        const close=samples.every(o=>o?.lo!=null && o?.hi!=null) && overlap(samples[0],samples[1]);
+        const notes="<small>"+nf(coverage)+" из "+nf(options.length)+"</small>" + (close?'<small class="pair-close">Интервалы пересекаются</small>':"");
+        row(label,samples.map((o,i)=>{
+          if(o?.[key]==null)return null;
+          const mode=o.mode ? "<small>Режим "+esc(o.mode)+"</small>" : "";
+          const range=o.lo!=null && o.hi!=null ? "<small>"+esc(intervalText(o,id))+" · "+format(o.lo)+"–"+format(o.hi)+"</small>" : "";
+          const variants=(bases[i]?.variants||[]).filter(v=>v[key]!=null || v.v!=null);
+          const controlKey="mode_"+i+"_"+id;
+          const chosen=variantChoices.get(controlKey)||"";
+          const more=variants.length>1 ? '<select class="pair-variant" data-variant="'+controlKey+'" aria-label="Режим '+esc(pair[i].name+" · "+label)+'"><option value="">Лучший замер</option>'+
+            variants.map(v=>'<option value="'+esc(identity(v))+'"'+(identity(v)===chosen?" selected":"")+'>'+esc(v.source_label||v.mode||"Источник")+" · "+format(v[key]??v.v)+"</option>").join("")+"</select>" : "";
+          return "<b>"+format(o[key])+"</b>"+mode+range+more;
+        }),notes);
       }
-      if (pair.some(m => m.own?.ege) && D.own?.ege) {
-        const note = document.createElement("p");
-        note.className = "muted";
-        note.textContent = D.own.ege.caveat;
-        result.append(note);
+      const topicTests = focus==="all"?TESTS:TESTS.filter(([id])=>focus==="ege"?id==="ege":focus==="photo"?id==="mathx":false);
+      const topicArena = focus==="all"?SECTIONS:SECTIONS.filter(([id])=>focus==="web"?["web","code"].includes(id):focus==="photo"?["vision","math"].includes(id):false);
+      if(topicTests.length){
+        group(focus==="ege"?"Пилот Fizmat Hero":"Тесты с проверяемым ответом");
+        for(const [id,label] of topicTests) measure(label,id);
       }
+      if ((focus==="all" || focus==="ege") && pair.some(m=>m.own?.ege)){
+        const details = [["exact","Точно как эксперт"],["pm1","В пределах одного балла"],["stricter","Ниже эксперта"],["softer","Выше эксперта"]];
+        for (const [key,label] of details) row(label, pair.map(m=>m.own?.ege?.[key]==null?null:nf(m.own.ege[key])+" из "+nf(m.own.ege.n)));
+        conditionRow("Фактическая цена 100 проверок",pair.map(m=>m.own?.ege?.cost_rub_per_100),x=>nf(x,2)+" ₽");
+      }
+      if(topicArena.length){ group("Предпочтения участников Arena"); for(const [id,label] of topicArena) measure("Arena · "+label,id); }
+      if (focus==="web" || (focus==="all" && pair.some(m=>m.contra))){
+        group("Contra · веб-дизайн");
+        row("Elo в слепых сравнениях",pair.map(m=>m.contra?.elo==null?null:"<b>"+nf(m.contra.elo)+"</b><small>"+nf(m.contra.votes)+" голосов</small>"));
+        row("Доля побед",pair.map(m=>m.contra?.win_rate==null?null:pctf(m.contra.win_rate)+(m.contra.win_lo!=null && m.contra.win_hi!=null?"<small>95% интервал · "+pctf(m.contra.win_lo)+"–"+pctf(m.contra.win_hi)+"</small>":"")));
+        conditionRow("Оценка по критериям дизайна",pair.map(m=>m.contra?.rubric),x=>nf(x)+" / 100");
+      }
+      group("Возможности и тарифы API");
+      row("Форматы на входе",pair.map(m=>Array.isArray(m.input_modalities)?esc(m.input_modalities.map(x=>modalLabel[x]||x).join(", ")):null));
+      for(const [key,label] of [["in","Вход"],["out","Выход"],["cache_read","Чтение из кэша"],["cache_write","Запись в кэш"]]){
+        conditionRow(label+", $ за 1 млн токенов",pair.map(m=>m.price?.[key]),usd);
+      }
+      conditionRow("Контекст, токенов",pair.map(m=>m.ctx),nf);
+      conditionRow("Максимальный ответ, токенов",pair.map(m=>m.max_output),nf);
+      if(focus==="all"){
+        row("Подтверждённый релиз",pair.map(m=>freshRelease(m)?dateLabel(m.date):"Дата не подтверждена"));
+        conditionRow("Первое появление в Arena",pair.map(m=>m.first_seen),dateLabel);
+        conditionRow("Добавлена в OpenRouter",pair.map(m=>m.listed),dateLabel);
+      }
+      const note=(focus==="all"||focus==="ege")&&D.own?.ege&&pair.some(m=>m.own?.ege)?'<p class="muted">'+esc(D.own.ege.caveat)+"</p>":"";
+      result.innerHTML='<table class="pair-table"><caption class="sr-only">Сравнение выбранных моделей</caption><thead><tr><th scope="col">Показатель</th>'+pair.map(m=>'<th scope="col">'+esc(m.name)+"</th>").join("")+"</tr></thead><tbody>"+body.join("")+"</tbody></table>"+note;
+      renderQuote();
     }
-    selects.forEach(select => select.addEventListener("change", renderPair));
+    function edited(){
+      $("#pairNotice").textContent="";
+      try { localStorage.setItem("ai-rating-pair",JSON.stringify(selected().map(x=>x.id))); } catch {}
+      renderPair(); syncLink(true);
+    }
+    $("#pairFocus").onclick = event => {
+      const button=event.target.closest("button[data-focus]");
+      if(!button)return;
+      focus=button.dataset.focus;
+      if(focus==="ege" && !selected().some(m=>m.own?.ege)){
+        const measured=options.filter(m=>m.own?.ege).sort((a,b)=>b.own.ege.v-a.own.ege.v);
+        if(measured.length>=2) selects.forEach((s,i)=>{searches[i].value="";filterPicker(i,measured[i].id);});
+      }
+      edited();
+    };
+    result.addEventListener("change",event=>{
+      const el=event.target.closest("select[data-variant]");
+      if(!el)return;
+      if(el.value)variantChoices.set(el.dataset.variant,el.value);else variantChoices.delete(el.dataset.variant);
+      const key=el.dataset.variant;
+      renderPair(); syncLink(true);
+      result.querySelector('[data-variant="'+key+'"]')?.focus({preventScroll:true});
+    });
+    selects.forEach((s,i)=>s.addEventListener("change",()=>{
+      for(const key of variantChoices.keys()) if(key.startsWith("mode_"+i+"_")) variantChoices.delete(key);
+      edited();
+    }));
+    inputs.forEach(el=>el.addEventListener("input",()=>{renderQuote();syncLink(true);}));
+    $("#pairCost").addEventListener("toggle",()=>syncLink(new URL(location.href).searchParams.has("compare")));
+    $("#pairShare").onclick=async()=>{
+      const u=shareURL().href;
+      try{await navigator.clipboard.writeText(u);$("#pairNotice").textContent="Ссылка скопирована.";}
+      catch {$("#pairNotice").textContent="Скопируйте адрес ссылки на эту пару.";$("#pairPermalink").focus();}
+    };
     renderPair();
+    if(params.get("compare")==="1" && (!url.hash || url.hash==="#compare"))
+      requestAnimationFrame(()=>$("#compare").scrollIntoView({block:"start",behavior:"instant"}));
   }
+
 
   // ───────── история (стрелки) ─────────
   function deltaFor(metricKey, id) {
@@ -418,8 +607,8 @@
     const w = Math.max(4, Math.round(70 * (NORM[st.tst] ? NORM[st.tst](v) : 0)));
     const o = st.tst === "eci" ? m.eci : st.tst === "ege" ? m.own.ege : m.bench[st.tst];
     const fmt = (x) => st.tst === "eci" ? nf(x, 1) : pctf(x);
-    const tip = o.lo != null ? `погрешность ${fmt(o.lo)}–${fmt(o.hi)}` : "погрешность не опубликована";
-    return `<div class="score"><span class="meter"><i style="width:${w}px"></i></span><b title="${tip}">${fmt(v)}</b>${st.tst === "eci" ? deltaFor("eci", m.id) : ""}</div>`;
+    const tip = (o.lo != null && o.hi != null ? intervalText(o,st.tst)+" "+fmt(o.lo)+"–"+fmt(o.hi) : "Интервал не опубликован")+(o.mode ? " · Режим "+o.mode : "");
+    return `<div class="score"><span class="meter"><i style="width:${w}px"></i></span><b title="${esc(tip)}">${fmt(v)}</b>${o.mode ? `<small class="muted">${esc(o.mode)}</small>` : ""}${st.tst === "eci" ? deltaFor("eci", m.id) : ""}</div>`;
   };
   const LIMIT = 40;
   function sortVal(m) {
@@ -428,7 +617,7 @@
       case "eci": return testOf(m);
       case "arena": return m.arena[st.sec]?.elo ?? null;
       case "price": return blended(m);
-      case "date": return m.date || null;
+      case "date": return freshRelease(m);
     }
   }
   function renderTable() {
@@ -450,7 +639,8 @@
     $("#testHead").textContent = "Тесты · " + (TESTNAME[st.tst] || "нет зачётов").split(" · ")[0];
     $("#rows").innerHTML = list.map((m, i) => {
       const a = m.arena[st.sec];
-      const isNew = m.date && (built - new Date(m.date)) / 864e5 <= 30;
+      const daysSince = freshRelease(m) ? (built - new Date(m.date)) / 864e5 : null;
+      const isNew = daysSince != null && daysSince >= 0 && daysSince <= 30;
       const aW = a ? Math.max(4, Math.round(70 * Math.max(0, a.elo - sMin) / (sMax - sMin || 1))) : 0;
       return `<tr>
         <td class="c-n mono muted">${i + 1}</td>
@@ -460,7 +650,7 @@
         <td class="c-e r" data-label="${esc("Тесты · " + (TESTNAME[st.tst] || "нет зачётов"))}">${testCell(m)}</td>
         <td class="c-a r" data-label="${esc(label)}">${a ? `<div class="score"><span class="meter"><i style="width:${aW}px"></i></span><b title="${nf(a.votes)} голосов, погрешность ${nf(a.lo)}–${nf(a.hi)}">${nf(a.elo)}</b><span class="rk">#${a.rank}</span>${deltaFor(st.sec, m.id)}</div>` : '<span class="na">нет в разделе</span>'}</td>
         <td class="c-p r">${m.price ? `<span class="price">${money(m.price.in)} <small>/</small> ${money(m.price.out)}</span>` : '<span class="na">—</span>'}</td>
-        <td class="c-d r muted"${m.dsrc === "arena" ? ' title="Примерно: день первого появления в Arena"' : ""}>${m.dsrc === "arena" ? "≈ " : ""}${dayShort(m.date)}</td>
+        <td class="c-d r muted"${m.dsrc === "arena" ? ' title="Примерно: день первого появления в Arena"' : ""}>${dayShort(freshRelease(m))}</td>
       </tr>`;
     }).join("") || `<tr><td colspan="6" class="loading">Ничего не нашлось.</td></tr>`;
     $("#count").textContent = `${nf(total)} ${plural(total, "модель", "модели", "моделей")}`;
@@ -474,9 +664,9 @@
   const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c; };
 
   function updateRankingOptions() {
-    const current = models().filter(m => currentIds.has(m.id));
+    const current = models();
     for (const [key, choices] of [["sec", SECTIONS], ["tst", TESTS]]) {
-      const allowed = choices.filter(([id]) => coversFamilies(current.filter(m => metric[id](m) != null)));
+      const allowed = choices.filter(([id]) => current.some(m => metric[id](m) != null));
       const select = $("#" + key);
       if (!allowed.some(([id]) => id === st[key])) st[key] = allowed[0]?.[0] || "";
       select.innerHTML = allowed.map(([id, name]) => `<option value="${id}">${esc(name)}</option>`).join("") || '<option value="">Нет зачётов</option>';
@@ -680,6 +870,15 @@
       pill(s.epoch?.ok !== false, `Epoch: модели по <b>${dayLong(src.epoch?.latest_model)}</b>${s.epoch?.ok === false ? " · не обновился" : ""}`),
       pill(s.openrouter?.ok !== false, `Цены: <b>OpenRouter</b>${s.openrouter?.ok === false ? " · не обновились" : ""}`),
     ].join("");
+    const sources = [["arena","Arena"],["epoch","Epoch"],["openrouter","OpenRouter"],["contra","Contra"],["cbr","ЦБ РФ"]];
+    const sourceRows = sources.filter(([key])=>s[key] || src[key]).map(([key,name])=>{
+      const meta=src[key]||{}, last=s[key]?.fetched || meta.fetched, count=meta.count;
+      const timestamp=last ? new Date(last).toLocaleString("ru-RU",{timeZone:"Europe/Moscow",dateStyle:"short",timeStyle:"short"})+" МСК" : "не указана";
+      return "<li><b>"+name+"</b> · последняя загрузка "+esc(timestamp)+(count!=null?" · записей "+nf(count):"")+(meta.published?" · публикация "+esc(meta.published):"")+(s[key]?.ok===false?" · из кэша":"")+"</li>";
+    });
+    let detail=$("#sourceDates");
+    if(!detail){detail=document.createElement("details");detail.id="sourceDates";detail.className="source-times";$("#status").after(detail);}
+    detail.innerHTML="<summary>Свежесть источников</summary><ul>"+sourceRows.join("")+"</ul>";
     $("#period").innerHTML = `<span class="period-label">Вышли за</span><span class="period-chips" role="group" aria-label="Срок выхода моделей">${
       PERIODS.map(([d, , short]) => `<button type="button" class="chip" data-d="${d}" aria-pressed="${d === PERIOD}">${short}</button>`).join("")
     }</span><span class="period-count"><b>${nf(models().length)}</b> из ${nf(D.models.length)} ${plural(D.models.length, "модели", "моделей", "моделей")}</span>`;
@@ -717,7 +916,7 @@
     fetch("data/history.json", { cache: "no-cache" }).then((r) => r.ok ? r.json() : {}).catch(() => ({})),
   ]).then(([d, h]) => {
     D = d; H = h || {};
-    CUTOFF = PERIOD ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
+    CUTOFF = PERIOD > 0 ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
     buildNorm(); identifyGenerations(); updateRankingOptions(); bindPair(); renderStatus(); renderLeaders(); renderTasks(); bindTable(); renderTable(); renderCharts();
     let rt; let lastW = innerWidth;
     addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { if (Math.abs(innerWidth - lastW) > 40) { lastW = innerWidth; renderCharts(); } }, 250); });

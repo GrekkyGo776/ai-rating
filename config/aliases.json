@@ -1,6 +1,18 @@
 {
   "_comment": "Пары «название в любом источнике» → «название, под которым сводим». Регистр, пробелы и режимы в скобках не важны.",
   "pairs": {
-    "Qwen3.8 Max (0902)": "Qwen3.8 Max"
+    "Gemma 4 31B": "Gemma 4 31B IT",
+    "Gemma 3 27B": "Gemma 3 27B IT",
+    "Gemma 3 27B Instruct": "Gemma 3 27B IT",
+    "Gemma 3 12B": "Gemma 3 12B IT",
+    "Gemma 3 4B": "Gemma 3 4B IT",
+    "Nemotron 3 Ultra 550B A55B": "Nemotron 3 Ultra",
+    "GPT-4.1 (2025-04-14)": "GPT-4.1",
+    "GPT-4.1 mini (2025-04-14)": "GPT-4.1 mini",
+    "GPT-4.1 nano (2025-04-14)": "GPT-4.1 nano"
+  },
+  "price_exclusions": {
+    "Gemma 2 27B": "Epoch groups both gemma-2-27b and gemma-2-27b-it under this score. The OpenRouter route is instruction-tuned only.",
+    "deepseek-chat": "The December 2025 Epoch measurement uses a floating provider alias. The identically spelled OpenRouter slug is labeled DeepSeek V3 (December 2024)."
   }
 }

@@ -286,3 +286,43 @@ footer a{color:var(--muted)}
 }
 
 .pair-summary{margin:0 0 14px;padding:12px 16px;border-left:3px solid var(--sky);background:var(--panel)}
+
+.pair-focus{margin-bottom:18px}
+.pair-actions,.pair-sources{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap}
+.pair-actions{margin-bottom:18px}
+.pair-actions a,.pair-sources a,.pair-cost a{color:var(--sky);text-underline-offset:3px}
+.pair-actions [role=status],.pair-sources{color:var(--muted);font-size:.9rem}
+.pair-table .pair-group th{background:var(--panel-2);color:var(--sky);font-weight:600}
+.pair-table td small,.pair-table th small{display:block;font-size:.85rem;font-weight:400;line-height:1.35;color:var(--muted)}
+.pair-table th small{margin-top:4px}
+.pair-table details{margin-top:5px}
+.pair-table summary,.pair-cost summary{cursor:pointer}
+.pair-table summary{font-size:.85rem;color:var(--sky)}
+.pair-table .pair-close{color:var(--gold)}
+.pair-table thead th{position:sticky;top:54px;background:var(--bg-2);z-index:1}
+.pair-table th:first-child{width:38%}
+.pair-cost{margin:18px 0 12px;padding:16px 18px;border:1px solid var(--line-2);border-radius:var(--radius);background:var(--panel)}
+.pair-cost summary{font-weight:600}
+.pair-cost p{color:var(--muted);margin-block:12px}
+.pair-controls input{width:100%;min-width:0;padding:10px;border:1px solid var(--line-2);border-radius:10px;background:var(--bg);color:var(--text);font:inherit}
+.pair-quote{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pair-quote div{padding:10px 12px;background:var(--bg-2);border-radius:9px}
+.pair-quote b,.pair-quote strong,.pair-quote small{display:block;overflow-wrap:anywhere}
+.pair-quote strong{font-size:1.16rem;color:var(--sky)}
+.pair-quote small,.source-times{color:var(--muted);font-size:.88rem}
+.source-times{margin-top:2px}.source-times summary{cursor:pointer;width:fit-content}
+.source-times ul{padding-left:18px;margin:6px 0}
+@media(max-width:600px){
+  .pair-table th:first-child{width:34%}
+  .pair-table thead th{font-size:.875rem}
+  .pair-table td small,.pair-table th small,.pair-table summary{font-size:.78rem}
+  .pair-cost{padding:12px}
+  .pair-quote{gap:7px}
+}
+.pair-variant{max-width:100%;width:100%;padding:5px 3px;font:inherit;font-size:.83rem;margin-top:5px;background:var(--bg);border:1px solid var(--line-2);border-radius:6px;color:var(--text)}
+
+.pair-picker{display:grid;align-content:start;gap:5px;min-width:0}
+.pair-picker select,.pair-picker input{min-height:44px}
+.pair-picker label:not(:first-child){margin-top:5px}
+.pair-matches{color:var(--muted);font-size:.875rem}
+.pair-matches:empty{display:none}

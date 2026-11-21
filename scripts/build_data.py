@@ -29,6 +29,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
@@ -54,6 +55,7 @@ ARENA_SECTIONS = [
 ]
 EPOCH_ZIP = "https://epoch.ai/data/benchmark_data.zip"
 OPENROUTER = "https://openrouter.ai/api/v1/models"
+CBR = "https://www.cbr.ru/scripts/XML_daily.asp"
 
 MSK = dt.timezone(dt.timedelta(hours=3))
 
@@ -147,6 +149,7 @@ def fetch_epoch() -> dict:
             continue
         models.append({
             "name": r.get("Display name") or r["Model"],
+            "source_id": r["Model"],
             "eci": round(eci, 1),
             "lo": round(float(r["eci_ci_low"]), 1) if r.get("eci_ci_low") else None,
             "hi": round(float(r["eci_ci_high"]), 1) if r.get("eci_ci_high") else None,
@@ -170,11 +173,14 @@ EPOCH_BENCH = [
 def epoch_benchmarks(z: zipfile.ZipFile) -> dict:
     names = z.namelist()
     meta_name = next((n for n in names if n.endswith("model_metadata.csv")), None)
-    display = {}
+    metadata = {}
+    versions_by_group = {}
     if meta_name:
         for r in csv.DictReader(io.TextIOWrapper(z.open(meta_name), encoding="utf-8")):
             if r.get("model_version"):
-                display[r["model_version"]] = r.get("display_name") or ""
+                metadata[r["model_version"]] = r
+                version_base = r["model_version"].split("_", 1)[0]
+                versions_by_group.setdefault(r.get("model_group"), set()).add(version_base)
     out = {}
     for bid, fname, col in EPOCH_BENCH:
         path = next((n for n in names if n.endswith("/" + fname) or n == fname), None)
@@ -182,7 +188,18 @@ def epoch_benchmarks(z: zipfile.ZipFile) -> dict:
             continue
         rows = []
         for r in csv.DictReader(io.TextIOWrapper(z.open(path), encoding="utf-8")):
-            name = r.get("Name") or display.get(r.get("Model version", ""), "")
+            source_id = r.get("Model version") or ""
+            meta = metadata.get(source_id, {})
+            name = r.get("Name") or meta.get("display_name")
+            source_label = name or source_id
+            mode = None
+            if not name and source_id:
+                base, _, mode = source_id.partition("_")
+                group = meta.get("model_group")
+                # A group containing several releases or base/instruct variants is ambiguous.
+                name = group if group and len(versions_by_group[group]) == 1 else base.split("/")[-1]
+                if mode and re.fullmatch(r"\d+k", mode, re.I):
+                    mode += " thinking"
             try:
                 v = float(r.get(col) or "")
             except ValueError:
@@ -191,15 +208,38 @@ def epoch_benchmarks(z: zipfile.ZipFile) -> dict:
                 continue
             se = r.get("stderr")
             rows.append({"name": name, "v": round(v, 4), "se": round(float(se), 4) if se not in (None, "") else None,
-                         "date": r.get("Release date") or None})
+                         "date": r.get("Release date") or meta.get("date") or None, "source_id": source_id or None,
+                         "source_label": source_label, "mode": mode,
+                         "org": r.get("Organization") or meta.get("organization") or "",
+                         "country": r.get("Country") or meta.get("country") or ""})
         out[bid] = rows
     return out
 
 
 # ───────────────────────── OpenRouter ─────────────────────────
 
+def unit_price(raw):
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return round(value * 1e6, 8) if math.isfinite(value) and value >= 0 else None
+
+
 def fetch_openrouter() -> dict:
-    data = json.loads(http_get(OPENROUTER))["data"]
+    page = OPENROUTER
+    seen = set()
+    data = []
+    while page:
+        if page in seen or urllib.parse.urlsplit(page).netloc != "openrouter.ai":
+            raise ValueError("OpenRouter вернул некорректную ссылку на следующую страницу")
+        seen.add(page)
+        result = json.loads(http_get(page))
+        data.extend(result["data"])
+        next_page = (result.get("links") or {}).get("next")
+        page = urllib.parse.urljoin(page, next_page) if next_page else None
+    if not data:
+        raise ValueError("Пустой каталог OpenRouter")
     models = []
     for m in data:
         mid = m.get("id", "")
@@ -213,15 +253,43 @@ def fetch_openrouter() -> dict:
         if pin < 0 or pout < 0:
             continue
         name = m.get("name") or mid
+        tiers = []
+        for tier in p.get("overrides") or []:
+            if not isinstance(tier.get("min_prompt_tokens"), int):
+                continue
+            rates = {key: unit_price(tier.get(field)) for key, field in
+                     [("in", "prompt"), ("out", "completion"), ("cache_read", "input_cache_read"), ("cache_write", "input_cache_write")]}
+            tiers.append({"min_prompt_tokens": tier["min_prompt_tokens"], **{k: v for k, v in rates.items() if v is not None}})
         models.append({
             "id": mid,
+            "canonical_slug": m.get("canonical_slug"),
             "name": name.split(": ", 1)[-1],
             "in": round(pin * 1e6, 4),
             "out": round(pout * 1e6, 4),
             "context": m.get("context_length"),
+            "max_output": (m.get("top_provider") or {}).get("max_completion_tokens"),
+            "input_modalities": (m.get("architecture") or {}).get("input_modalities"),
+            "cache_read": unit_price(p.get("input_cache_read")),
+            "cache_write": unit_price(p.get("input_cache_write")),
+            "tiers": sorted(tiers, key=lambda row: row["min_prompt_tokens"]),
             "created": dt.datetime.fromtimestamp(m["created"], dt.timezone.utc).date().isoformat() if m.get("created") else None,
         })
     return {"models": models}
+
+
+def fetch_cbr() -> dict:
+    xml = ET.fromstring(http_get(CBR))
+    usd = next(node for node in xml.findall("Valute") if node.findtext("CharCode") == "USD")
+    value = float(usd.findtext("Value").replace(",", ".")) / int(usd.findtext("Nominal"))
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("Некорректный курс USD ЦБ РФ")
+    return {"usd_rub": value, "date": dt.datetime.strptime(xml.attrib["Date"], "%d.%m.%Y").date().isoformat(),
+            "source": "ЦБ РФ"}
+
+
+def fetch_contra_source() -> dict:
+    from contra_data import fetch_contra
+    return fetch_contra(http_get)
 
 
 # Полная история Arena: когда модель впервые появилась (дата для моделей, которых нет в Epoch и OpenRouter)
@@ -264,7 +332,24 @@ def fetch_arena_history() -> dict:
     return {"latest": latest, "first_seen": first, "snaps": snaps}
 
 
-FETCHERS = {"arena": fetch_arena, "arena_history": fetch_arena_history, "epoch": fetch_epoch, "openrouter": fetch_openrouter}
+FETCHERS = {"arena": fetch_arena, "arena_history": fetch_arena_history, "epoch": fetch_epoch,
+            "openrouter": fetch_openrouter, "cbr": fetch_cbr, "contra": fetch_contra_source}
+
+
+def source_count(source, payload):
+    if source == "arena":
+        return len({key(r["name"]) for rows in payload.get("sections", {}).values() for r in rows})
+    if source == "arena_history":
+        return len(payload.get("first_seen", {}))
+    if source == "cbr":
+        return int(bool(payload.get("usd_rub")))
+    return len(payload.get("models", []))
+
+
+def save_json(path, value):
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(value, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    temp.replace(path)
 
 
 def fetch_all() -> dict:
@@ -273,14 +358,20 @@ def fetch_all() -> dict:
     now = dt.datetime.now(MSK).isoformat(timespec="minutes")
     for src, fn in FETCHERS.items():
         path = CACHE / f"{src}.json"
+        old = optional_cache(src)
         try:
             payload = fn()
+            count = source_count(src, payload)
+            if not count:
+                raise ValueError("Источник вернул пустую выгрузку")
             payload["fetched"] = now
-            path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            save_json(path, payload)
             status[src] = {"ok": True, "fetched": now}
+            previous_count = source_count(src, old)
+            if previous_count and count < previous_count * 0.75:
+                status[src]["warning"] = f"Охват снизился: {previous_count} → {count}"
             print(f"✓ {src}")
         except Exception as e:  # noqa: BLE001
-            old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
             status[src] = {"ok": False, "fetched": old.get("fetched"), "error": str(e)[:300]}
             print(f"✗ {src}: {e}", file=sys.stderr)
     return status
@@ -306,12 +397,18 @@ BENCH_MODE_RE = re.compile(r"\s*\((?=[^)]*\b(?:max|xhigh|x-high|high|medium|low|
                            r"fireworks|default|adaptive|effort|budget)\b)[^)]*\)\s*$", re.I)
 
 
-def bench_name(name: str) -> str:
-    while True:
-        n2 = BENCH_MODE_RE.sub("", name)
-        if n2 == name:
-            return name.strip()
-        name = n2
+def bench_identity(name: str) -> tuple[str, str]:
+    """Месяц версии может соседствовать с режимом в тех же скобках."""
+    modes = []
+    while match := BENCH_MODE_RE.search(name):
+        parts = [s.strip() for s in match.group(0).strip(" ()").split(",")]
+        versions = [s for s in parts if re.fullmatch(r"(?:[a-z]{3,9}\s+20\d{2}|20\d{2}-\d\d-\d\d)", s, re.I)]
+        modes[0:0] = [s for s in parts if s not in versions]
+        name = name[:match.start()].strip()
+        if versions:
+            name += " (" + ", ".join(versions) + ")"
+            break
+    return name.strip(), ", ".join(modes)
 
 
 def norm(name: str) -> str:
@@ -325,7 +422,7 @@ ORG_NAMES = {
     "anthropic": "Anthropic", "meta": "Meta", "meta ai": "Meta", "xai": "xAI", "spacexai": "xAI",
     "deepseek": "DeepSeek", "deepseek,peking university": "DeepSeek", "alibaba": "Alibaba", "moonshot": "Moonshot AI",
     "moonshot ai": "Moonshot AI", "kimi": "Moonshot AI", "z.ai (zhipu ai)": "Z.ai", "zhipu": "Z.ai", "zai": "Z.ai",
-    "z.ai": "Z.ai", "mistral": "Mistral", "mistral ai": "Mistral", "minimax": "MiniMax", "nvidia": "NVIDIA",
+    "z.ai": "Z.ai", "z ai": "Z.ai", "mistral": "Mistral", "mistral ai": "Mistral", "minimax": "MiniMax", "nvidia": "NVIDIA",
     "xiaomi": "Xiaomi", "tencent": "Tencent", "amazon": "Amazon", "microsoft": "Microsoft", "cohere": "Cohere",
     "ibm": "IBM", "stepfun": "StepFun", "bytedance": "ByteDance", "baidu": "Baidu", "inclusionai": "InclusionAI",
     "ant group": "InclusionAI", "thinking machines": "Thinking Machines", "allenai": "Ai2", "ai2": "Ai2",
@@ -360,18 +457,34 @@ def key(name: str) -> str:
 _ALIAS: dict | None = None
 
 
-def arena_date(name: str, first_seen: str | None) -> str | None:
-    """Дата для модели, которая есть только в Arena: день первого появления там, но если в названии
-    зашита более ранняя дата (GPT-5.2 Chat (20260210)) — она: модель могли переименовать позже выхода."""
-    m = re.search(r"(20\d{2})(\d{2})(\d{2})", name)
-    named = None
+def version_date(name: str) -> str | None:
+    """Дата в названии версии сама по себе не подтверждает её публичный релиз."""
+    m = re.search(r"(?<!\d)(20\d{2})[-.]?(\d{2})[-.]?(\d{2})(?!\d)", name)
     if m:
         try:
-            named = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+            return dt.date(*map(int, m.groups())).isoformat()
         except ValueError:
-            named = None
-    cands = [d for d in (first_seen, named) if d]
-    return min(cands) if cands else None
+            pass
+    return None
+
+
+def add_measurement(group: dict, metric: str, sample: dict, value_key: str):
+    """Лучший замер доступен старым клиентам, альтернативные режимы сохраняются рядом."""
+    current = group.get(metric)
+    if current is None:
+        group[metric] = sample
+        return
+    variants = current.get("variants") or [current.copy()]
+    if sample in variants:
+        return
+    variants.append(sample.copy())
+    best = max(variants, key=lambda r: r[value_key])
+    group[metric] = {**best, "variants": variants}
+
+
+def optional_cache(name: str):
+    path = CACHE / (name + ".json")
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def merge(status: dict | None = None) -> dict:
@@ -380,6 +493,12 @@ def merge(status: dict | None = None) -> dict:
     orouter = json.loads((CACHE / "openrouter.json").read_text(encoding="utf-8"))
     hist_path = CACHE / "arena_history.json"
     ahist = json.loads(hist_path.read_text(encoding="utf-8")) if hist_path.exists() else {"first_seen": {}, "snaps": {}}
+    contra = optional_cache("contra")
+    fx = optional_cache("cbr")
+    first_seen = {}
+    for source_key, day in ahist["first_seen"].items():
+        k = key(source_key)
+        first_seen[k] = min(day, first_seen.get(k, day))
 
     models: dict[str, dict] = {}
 
@@ -391,23 +510,25 @@ def merge(status: dict | None = None) -> dict:
         for r in rows:
             k = key(r["name"])
             m = get(k)
-            cur = m["arena"].get(sid)
-            if cur is None or r["elo"] > cur["elo"]:
-                base, mode = strip_mode(r["name"])
-                m["arena"][sid] = {"elo": r["elo"], "lo": r["lo"], "hi": r["hi"], "votes": r["votes"],
-                                   "rank": r["rank"], "mode": mode}
-                if sid == "text" or "aname" not in m:
-                    m["aname"] = base
-                m.setdefault("org", org_name(r["org"]))
-                if r["license"]:
-                    m.setdefault("open", r["license"].lower() != "proprietary")
+            base, mode = strip_mode(r["name"])
+            add_measurement(m["arena"], sid, {"elo": r["elo"], "lo": r["lo"], "hi": r["hi"],
+                            "votes": r["votes"], "rank": r["rank"], "mode": mode,
+                            "source_label": r["name"], "interval_type": "arena"}, "elo")
+            if "aname" not in m or sid == "text" and m["arena"][sid]["source_label"] == r["name"]:
+                m["aname"] = base
+            m.setdefault("org", org_name(r["org"]))
+            if r["license"]:
+                m.setdefault("open", r["license"].lower() != "proprietary")
 
     for e in epoch["models"]:
         m = get(key(e["name"]))
-        if "eci" in m and m["eci"]["v"] >= e["eci"]:
+        name, mode = strip_mode(e["name"])
+        add_measurement(m, "eci", {"v": e["eci"], "lo": e["lo"], "hi": e["hi"],
+                        "mode": mode, "source_label": e["name"], "source_id": e.get("source_id"),
+                        "interval_type": "bayesian_90"}, "v")
+        if m["eci"]["source_label"] != e["name"]:
             continue
-        m["eci"] = {"v": e["eci"], "lo": e["lo"], "hi": e["hi"]}
-        m["ename"] = strip_mode(e["name"])[0]
+        m["ename"] = name
         if e["org"]:
             m["org"] = org_name(e["org"].split(",")[0]) if "," in e["org"] and "google" not in e["org"].lower() else org_name(e["org"])
         if e["country"]:
@@ -419,13 +540,30 @@ def merge(status: dict | None = None) -> dict:
 
     for bid, rows in (epoch.get("bench") or {}).items():
         for r in rows:
-            m = get(key(bench_name(r["name"])))
-            cur = m.setdefault("bench", {}).get(bid)
-            if cur is None or r["v"] > cur["v"]:
-                lo = hi = None
-                if r["se"]:
-                    lo, hi = max(0.0, r["v"] - 1.96 * r["se"]), min(1.0, r["v"] + 1.96 * r["se"])
-                m["bench"][bid] = {"v": r["v"], "lo": round(lo, 4) if lo is not None else None, "hi": round(hi, 4) if hi is not None else None}
+            name, mode = bench_identity(r["name"])
+            m = get(key(name))
+            m.setdefault("bname", name)
+            if r.get("org") and not m.get("org"):
+                m["org"] = org_name(r["org"])
+            if r.get("country") and not m.get("cc"):
+                m["cc"] = COUNTRY_CODES.get(r["country"], "")
+            if r.get("date"):
+                m.setdefault("bench_dates", set()).add(r["date"])
+            se = r["se"]
+            measurement = {"v": r["v"], "lo": None, "hi": None, "mode": r.get("mode") or mode,
+                           "source_label": r.get("source_label") or r["name"], "source_id": r.get("source_id"),
+                           "interval_type": None}
+            if se is not None:
+                measurement.update(lo=round(max(0, r["v"] - 1.96 * se), 4),
+                                   hi=round(min(1, r["v"] + 1.96 * se), 4), interval_type="normal_95")
+            add_measurement(m.setdefault("bench", {}), bid, measurement, "v")
+
+    for row in contra.get("models", []):
+        m = get(key(row["name"]))
+        m["contra"] = {k: v for k, v in row.items() if k not in ("name", "org")}
+        m["cname"] = row["name"]
+        if not m.get("org"):
+            m["org"] = org_name(row["org"])
 
     own = json.loads(OWN.read_text(encoding="utf-8")) if OWN.exists() else {}
     for oid, ob in own.items():
@@ -436,48 +574,66 @@ def merge(status: dict | None = None) -> dict:
             p, z = ex / n, 1.96
             c = (p + z * z / (2 * n)) / (1 + z * z / n)
             h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-            get(key(r["model"])).setdefault("own", {})[oid] = {
+            m = get(key(r["model"]))
+            m.setdefault("oname", r["model"])
+            measured_cost = r.get("cost_rub_per_100")
+            m.setdefault("own", {})[oid] = {
                 "v": round(p, 4), "lo": round(c - h, 4), "hi": round(c + h, 4), "n": n, "exact": ex,
                 "pm1": r.get("pm1"), "stricter": r.get("stricter"), "softer": r.get("softer"),
-                "sum_ai": r.get("sum_ai"), "sum_exp": r.get("sum_exp")}
+                "sum_ai": r.get("sum_ai"), "sum_exp": r.get("sum_exp"), "interval_type": "wilson_95",
+                **({"cost_rub_per_100": measured_cost} if measured_cost is not None else {})}
 
     prices = {}
     for p in orouter["models"]:
         prices.setdefault(key(p["name"]), p)
         prices.setdefault(key(p["id"].split("/", 1)[-1]), p)
+    if ALIASES.exists():
+        for excluded in json.loads(ALIASES.read_text(encoding="utf-8")).get("price_exclusions", {}):
+            prices.pop(key(excluded), None)
 
     out = []
     for k, m in models.items():
-        a = m["arena"]
-        keep = ("eci" in m and (m.get("date") or "") >= "2025-01-01") \
-            or (a.get("text", {}).get("rank", 999) <= 220) \
-            or any(a.get(s, {}).get("rank", 999) <= 90 for s in ("web", "vision", "doc")) \
-            or bool(m.get("own"))
-        if not keep:
-            continue
         p = prices.get(k)
+        name = m.get("ename") or m.get("aname") or m.get("bname") or m.get("cname") or m["oname"]
+        dates = m.get("bench_dates", set())
+        date = m.get("date") or (next(iter(dates)) if len(dates) == 1 else None)
         rec = {
             "id": k,
-            "name": m.get("ename") or m.get("aname") or k,
+            "name": name,
             "org": m.get("org") or "",
             "cc": m.get("cc") or ORG_COUNTRY.get(m.get("org", ""), ""),
             "open": m.get("open"),
-            "date": m.get("date") or (p or {}).get("created") or arena_date(m.get("aname") or k, ahist["first_seen"].get(k)),
-            "dsrc": "epoch" if m.get("date") else "openrouter" if (p or {}).get("created") else "arena" if ahist["first_seen"].get(k) else None,
+            "date": date,
+            "dsrc": "epoch" if m.get("date") else "epoch_benchmark" if date else None,
+            "version_date": version_date(name) or version_date(m.get("aname", "")),
+            "first_seen": first_seen.get(k),
+            "listed": (p or {}).get("created"),
             "eci": m.get("eci"),
             "bench": m.get("bench") or {},
             "own": m.get("own") or {},
-            "arena": a,
-            "price": {"in": p["in"], "out": p["out"]} if p else None,
+            "arena": m["arena"],
+            "contra": m.get("contra"),
+            "price": {key: p.get(key) for key in ("in", "out", "cache_read", "cache_write", "tiers")} if p else None,
             "ctx": (p or {}).get("context"),
+            "input_modalities": (p or {}).get("input_modalities"),
+            "max_output": (p or {}).get("max_output"),
             "or": (p or {}).get("id"),
+            "or_canonical": (p or {}).get("canonical_slug"),
         }
         out.append(rec)
 
     out.sort(key=lambda r: (-(r["eci"] or {}).get("v", 0), -(r["arena"].get("text") or {}).get("elo", 0)))
     now = dt.datetime.now(MSK)
-    status = status or {s: {"ok": True, "fetched": json.loads((CACHE / f"{s}.json").read_text("utf-8")).get("fetched")}
-                        for s in FETCHERS if (CACHE / f"{s}.json").exists()}
+    caches = {"arena": arena, "arena_history": ahist, "epoch": epoch, "openrouter": orouter, "contra": contra, "cbr": fx}
+    if status is None:
+        previous = json.loads((OUT / "models.json").read_text("utf-8")) if (OUT / "models.json").exists() else {}
+        status = {}
+        for src, cached in caches.items():
+            last = previous.get("status", {}).get(src, {})
+            if last.get("fetched") and last["fetched"] == cached.get("fetched"):
+                status[src] = {**last, "cached": True}
+            else:
+                status[src] = {"ok": bool(cached), "cached": True, "fetched": cached.get("fetched")}
     result = {
         "built": now.isoformat(timespec="minutes"),
         "status": status,
@@ -485,34 +641,46 @@ def merge(status: dict | None = None) -> dict:
             "arena": {"published": arena.get("published"), "url": f"https://huggingface.co/datasets/{HF_DATASET}"},
             "epoch": {"latest_model": epoch.get("latest_model_date"), "url": "https://epoch.ai/benchmarks"},
             "openrouter": {"url": "https://openrouter.ai/models"},
+            "contra": {"url": "https://contralabs.com/frontierdesign/leaderboard", "published": contra.get("published")},
+            "cbr": {"url": CBR, "published": fx.get("date")},
         },
+        "fx": {k: fx[k] for k in ("usd_rub", "date", "source")} if fx else None,
         "own": {oid: {k: v for k, v in ob.items() if k != "results"} for oid, ob in own.items() if not oid.startswith("_")},
         "models": out,
     }
+    for src, meta in result["sources"].items():
+        meta["count"] = source_count(src, caches[src])
+        meta["fetched"] = status.get(src, {}).get("fetched")
     OUT.mkdir(parents=True, exist_ok=True)
-    (OUT / "models.json").write_text(json.dumps(result, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    write_history(out, now.date().isoformat(), ahist.get("snaps", {}))
+    save_json(OUT / "models.json", result)
+    write_history(out, now.date().isoformat(), ahist.get("snaps", {}), arena.get("published"))
     matched = sum(1 for r in out if r["eci"] and r["arena"].get("text"))
     print(f"моделей на сайте: {len(out)}; с индексом Epoch и Arena: {matched}; с ценой: {sum(1 for r in out if r['price'])}")
     return result
 
 
-def write_history(models: list[dict], day: str, arena_snaps: dict) -> None:
-    """Места моделей по дням (для стрелок ▲▼): прошлые публикации Arena плюс сегодняшний снимок,
-    где есть и индекс Epoch. Храним 60 дней."""
+def write_history(models: list[dict], day: str, arena_snaps: dict, arena_day: str | None) -> None:
+    """Снимок ECI датирован днём сборки, а места Arena — днём публикации рейтинга."""
     path = OUT / "history.json"
     hist = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    if arena_snaps:
+        since = min(arena_snaps)
+        for d, snap in hist.items():
+            if d >= since and d not in arena_snaps:
+                hist[d] = {k: v for k, v in snap.items() if k == "eci"}
     for d, snap in arena_snaps.items():
         hist.setdefault(d, {}).update(snap)
-    snap = {}
     for metric in ("eci", "text", "ru", "math", "web", "vision"):
+        capture_day = day if metric == "eci" else arena_day
+        if not capture_day or (capture_day in arena_snaps and metric in arena_snaps[capture_day]):
+            continue
         val = (lambda r: (r["eci"] or {}).get("v")) if metric == "eci" else (lambda r, s=metric: (r["arena"].get(s) or {}).get("elo"))
         ranked = sorted((r for r in models if val(r) is not None), key=val, reverse=True)[:50]
-        snap[metric] = [r["id"] for r in ranked]
-    hist[day] = snap
+        hist.setdefault(capture_day, {})[metric] = [r["id"] for r in ranked]
     cutoff = (dt.date.fromisoformat(day) - dt.timedelta(days=60)).isoformat()
-    hist = {d: v for d, v in sorted(hist.items()) if d >= cutoff}
-    path.write_text(json.dumps(hist, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    hist = {d: {sid: list(dict.fromkeys(key(k) for k in ids)) for sid, ids in v.items()}
+            for d, v in sorted(hist.items()) if d >= cutoff}
+    save_json(path, hist)
 
 
 if __name__ == "__main__":
