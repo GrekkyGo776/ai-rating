@@ -345,17 +345,23 @@
     return "Интервал Arena";
   };
 
-  function quoteRequest(model, input, output) {
-    if (input == null || output == null) return {message:"Введите целое число токенов от нуля"};
+  function quoteRequest(model, input, output, cached = 0) {
+    if (input == null || output == null || cached == null) return {message:"Введите целое число токенов от нуля"};
+    if (cached > input) return {message:"Из кэша нельзя прочитать больше токенов, чем на входе"};
     if ((model.ctx != null && input + output > model.ctx) || (model.max_output != null && output > model.max_output))
       return {message:"Запрос не помещается", hint:"Превышен лимит контекста или ответа"};
     const tiers = (model.price?.tiers || []).filter(t => input >= t.min_prompt_tokens)
       .sort((a,b) => b.min_prompt_tokens - a.min_prompt_tokens);
     const inputRate = tiers[0]?.in ?? model.price?.in;
     const outputRate = tiers[0]?.out ?? model.price?.out;
-    if (!model.price || (input > 0 && !Number.isFinite(inputRate)) || (output > 0 && !Number.isFinite(outputRate)))
+    const tier = tiers[0];
+    const cacheRate = tier ? tier.cache_read : model.price?.cache_read;
+    if (cached > 0 && !Number.isFinite(cacheRate))
+      return {message:"Ставка чтения из кэша не опубликована", hint:tier ? "Для выбранной длины запроса" : ""};
+    const regularInput = input - cached;
+    if (!model.price || (regularInput > 0 && !Number.isFinite(inputRate)) || (output > 0 && !Number.isFinite(outputRate)))
       return {message:"Тариф не опубликован"};
-    const amount = (input * (inputRate || 0) + output * (outputRate || 0)) / 1e6;
+    const amount = (regularInput * (inputRate || 0) + cached * (cacheRate || 0) + output * (outputRate || 0)) / 1e6;
     const notes = [];
     if (tiers.length) notes.push("Тариф длинного запроса от " + nf(tiers[0].min_prompt_tokens) + " токенов");
     if (model.ctx == null) notes.push("Контекст не проверен");
@@ -369,7 +375,8 @@
     const url = new URL(location.href);
     const params = url.searchParams;
     const selects = [$("#pairA"),$("#pairB")];
-    const inputs = [$("#pairInput"),$("#pairOutput")];
+    const inputs = [$("#pairInput"),$("#pairOutput"),$("#pairCached")];
+    const tokenParams = ["input","output","cached"];
     const searches = [$("#pairSearchA"),$("#pairSearchB")];
     const matchStatus = [$("#pairMatchesA"),$("#pairMatchesB")];
     const fold = value => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
@@ -398,10 +405,10 @@
     });
     if (selects[0].value === selects[1].value) selects[1].value = options.find(m => m.id !== selects[0].value).id;
     inputs.forEach((input,i) => {
-      const value = params.get(i ? "output" : "input");
+      const value = params.get(tokenParams[i]);
       if (value != null && safeCount(value) != null) input.value = value;
     });
-    if (params.has("input") || params.has("output") || params.has("cost")) $("#pairCost").open = true;
+    if (tokenParams.some(k => params.has(k)) || params.has("cost")) $("#pairCost").open = true;
     if (paramNames.some(n => params.has(n) && !byId.has(params.get(n)))) $("#pairNotice").textContent = "Одна из моделей ссылки отсутствует в текущем каталоге. Показана доступная замена.";
     const selected = () => selects.map(s => byId.get(s.value));
 
@@ -434,8 +441,8 @@
       for (const [key,value] of variantChoices) u.searchParams.set(key,value);
       u.searchParams.delete("cost");
       inputs.forEach((el,i) => {
-        const key = i ? "output" : "input";
-        if ($("#pairCost").open && safeCount(el.value) != null) u.searchParams.set(key,el.value);
+        const key = tokenParams[i];
+        if ($("#pairCost").open && safeCount(el.value) != null && (key !== "cached" || Number(el.value) > 0)) u.searchParams.set(key,el.value);
         else u.searchParams.delete(key);
       });
       if ($("#pairCost").open) u.searchParams.set("cost","1");
@@ -453,9 +460,9 @@
       const fx = D.fx;
       const age = Math.floor((Date.now() - Date.parse(fx?.date + "T00:00:00+03:00")) / 864e5);
       const rub = Number.isFinite(fx?.usd_rub) && fx.usd_rub > 0 && age >= 0 && age <= 7;
-      const input = safeCount(inputs[0].value), output = safeCount(inputs[1].value);
+      const [input,output,cached] = inputs.map(el => safeCount(el.value));
       const costs = selected().map(m => {
-        const q = quoteRequest(m,input,output);
+        const q = quoteRequest(m,input,output,cached);
         const sum = q.amount == null ? esc(q.message) : usd(q.amount) + (rub ? " · " + nf(q.amount*fx.usd_rub,2) + " ₽" : "");
         return "<div><b>"+esc(m.name)+"</b><strong>"+sum+"</strong><small>"+esc(q.hint || "")+"</small></div>";
       }).join("");

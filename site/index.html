@@ -67,9 +67,10 @@
     <div class="pair-actions"><button class="btn" type="button" id="pairShare">Скопировать ссылку</button><a id="pairPermalink" href="?compare=1#compare">Ссылка на эту пару</a><span id="pairNotice" role="status"></span></div>
     <div id="pairResult"></div>
     <details class="pair-cost" id="pairCost"><summary>Рассчитать цену своего запроса</summary>
-      <p>В оплачиваемый выход входят ответ и токены рассуждения. Указаны базовые тарифы API на текст без кэша.</p>
+      <p>Вход включает все токены запроса. Уже закэшированную часть можно указать отдельно. В оплачиваемый выход входят ответ и токены рассуждения. Запись нового кэша в расчёт не входит.</p>
       <div class="pair-controls"><label for="pairInput">Вход, токенов<input id="pairInput" type="number" inputmode="numeric" min="0" step="1" value="10000"></label>
-      <label for="pairOutput">Оплачиваемый выход, токенов<input id="pairOutput" type="number" inputmode="numeric" min="0" step="1" value="2000"></label></div>
+      <label for="pairOutput">Оплачиваемый выход, токенов<input id="pairOutput" type="number" inputmode="numeric" min="0" step="1" value="2000"></label>
+      <label for="pairCached">Из входных токенов прочитано из кэша<input id="pairCached" type="number" inputmode="numeric" min="0" step="1" value="0"></label></div>
       <div id="pairQuote" aria-live="polite"></div>
     </details>
     <p class="pair-sources"><a href="https://docs.google.com/spreadsheets/d/1tXCfGnqmar9f_wKnaKMUQHsFYEk4HBs5ea5dfverjUQ/edit#gid=297654181" target="_blank" rel="noopener">Интеллект и цена задачи в Artificial Analysis</a> · <a href="https://contralabs.com/frontierdesign/leaderboard" target="_blank" rel="noopener">Веб-дизайн в Contra</a></p>
@@ -161,6 +162,6 @@
   <div>Сделано на <a href="https://fizmat.guru">fizmat.guru</a> · <span id="built"></span></div>
 </div></footer>
 
-<script src="assets/js/app.js?v=13" defer></script>
+<script src="assets/js/app.js?v=14" defer></script>
 </body>
 </html>
