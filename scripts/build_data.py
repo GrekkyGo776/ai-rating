@@ -54,6 +54,7 @@ ARENA_SECTIONS = [
     ("creative", "text_style_control", "creative_writing"),
     ("hard", "text_style_control", "hard_prompts"),
     ("web", "webdev", "overall"),
+    ("web_react", "webdev", "webdev-react"),
     ("vision", "vision", "overall"),
     ("vision_hw", "vision", "homework"),
     ("doc", "document", "overall"),
@@ -61,6 +62,7 @@ ARENA_SECTIONS = [
 EPOCH_ZIP = "https://epoch.ai/data/benchmark_data.zip"
 OPENROUTER = "https://openrouter.ai/api/v1/models"
 CBR = "https://www.cbr.ru/scripts/XML_daily.asp"
+DESIGNARENA_VIDEO = "https://www.designarena.ai/api/leaderboard?arenaType=agents&category=agon_code_video"
 
 MSK = dt.timezone(dt.timedelta(hours=3))
 
@@ -335,6 +337,31 @@ def fetch_contra_source() -> dict:
     return fetch_contra(http_get)
 
 
+def fetch_designarena() -> dict:
+    """DesignArena · Code to Video (агент пишет код и рендерит видео/анимацию)."""
+    raw = json.loads(http_get(DESIGNARENA_VIDEO, timeout=45).decode("utf-8"))
+    rows = raw.get("data") or []
+    if not rows:
+        raise ValueError("DesignArena: пустой список agon_code_video")
+    models = []
+    for idx, r in enumerate(rows, 1):
+        mid = str(r.get("modelId") or "").strip()
+        elo = r.get("elo")
+        if not mid or elo is None:
+            continue
+        wr = r.get("winRate")
+        cost = r.get("avgCostUsd")
+        models.append({
+            "id": mid,
+            "elo": round(float(elo), 1),
+            "win_rate": round(float(wr) / 100.0, 4) if wr is not None else None,
+            "battles": int(r.get("battles") or 0),
+            "cost": round(float(cost), 2) if cost is not None and float(cost) >= 0 else None,
+            "rank": idx,
+        })
+    return {"models": models}
+
+
 # Полная история Arena: когда модель впервые появилась (дата для моделей, которых нет в Epoch и OpenRouter)
 # и места за последние 60 дней (стрелки ▲▼). Файл text_style_control — около 60 МБ, читаем только нужные колонки.
 HIST_SECTIONS = [("agent", "agent_capability", "overall"), ("text", "text_style_control", "overall"),
@@ -383,7 +410,8 @@ def fetch_arena_history() -> dict:
 
 
 FETCHERS = {"arena": fetch_arena, "arena_history": fetch_arena_history, "epoch": fetch_epoch,
-            "openrouter": fetch_openrouter, "cbr": fetch_cbr, "contra": fetch_contra_source}
+            "openrouter": fetch_openrouter, "cbr": fetch_cbr, "contra": fetch_contra_source,
+            "designarena": fetch_designarena}
 
 
 def source_count(source, payload):
@@ -544,6 +572,7 @@ def merge(status: dict | None = None) -> dict:
     hist_path = CACHE / "arena_history.json"
     ahist = json.loads(hist_path.read_text(encoding="utf-8")) if hist_path.exists() else {"first_seen": {}, "snaps": {}}
     contra = optional_cache("contra")
+    designarena = optional_cache("designarena")
     fx = optional_cache("cbr")
     first_seen = {}
     for source_key, day in ahist["first_seen"].items():
@@ -623,6 +652,30 @@ def merge(status: dict | None = None) -> dict:
         if not m.get("org"):
             m["org"] = org_name(row["org"])
 
+    da_mode_re = re.compile(r"-(xhigh|max|high|medium|low)$", re.I)
+    for row in designarena.get("models", []):
+        raw_id = row.get("id") or ""
+        k_full = key(raw_id)
+        mode = ""
+        if k_full in models:
+            k = k_full
+        else:
+            mm = da_mode_re.search(raw_id)
+            if mm:
+                base_k = key(raw_id[: mm.start()])
+                if base_k in models:
+                    k = base_k
+                    mode = mm.group(1).capitalize() if mm.group(1).lower() != "xhigh" else "xHigh"
+                else:
+                    continue
+            else:
+                continue  # пропускаем временные анонимные кодовые имена DesignArena
+        sample = {
+            "elo": row["elo"], "win_rate": row.get("win_rate"), "battles": row.get("battles") or 0,
+            "cost": row.get("cost"), "rank": row.get("rank"), "mode": mode, "source_label": raw_id,
+        }
+        add_measurement(models[k], "code_video", sample, "elo")
+
     own = json.loads(OWN.read_text(encoding="utf-8")) if OWN.exists() else {}
     for oid, ob in own.items():
         if oid.startswith("_"):
@@ -671,6 +724,7 @@ def merge(status: dict | None = None) -> dict:
             "own": m.get("own") or {},
             "arena": m["arena"],
             "contra": m.get("contra"),
+            "code_video": m.get("code_video"),
             "price": {key: p.get(key) for key in ("in", "out", "cache_read", "cache_write", "tiers")} if p else None,
             "ctx": (p or {}).get("context"),
             "input_modalities": (p or {}).get("input_modalities"),
@@ -686,7 +740,8 @@ def merge(status: dict | None = None) -> dict:
         -(r["arena"].get("text") or {}).get("elo", 0),
     ))
     now = dt.datetime.now(MSK)
-    caches = {"arena": arena, "arena_history": ahist, "epoch": epoch, "openrouter": orouter, "contra": contra, "cbr": fx}
+    caches = {"arena": arena, "arena_history": ahist, "epoch": epoch, "openrouter": orouter,
+              "contra": contra, "designarena": designarena, "cbr": fx}
     if status is None:
         previous = json.loads((OUT / "models.json").read_text("utf-8")) if (OUT / "models.json").exists() else {}
         status = {}
@@ -704,6 +759,7 @@ def merge(status: dict | None = None) -> dict:
             "epoch": {"latest_model": epoch.get("latest_model_date"), "url": "https://epoch.ai/benchmarks"},
             "openrouter": {"url": "https://openrouter.ai/models"},
             "contra": {"url": "https://contralabs.com/frontierdesign/leaderboard", "published": contra.get("published")},
+            "designarena": {"url": "https://www.designarena.ai/leaderboard"},
             "cbr": {"url": CBR, "published": fx.get("date")},
         },
         "fx": {k: fx[k] for k in ("usd_rub", "date", "source")} if fx else None,
@@ -744,7 +800,7 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
     built_day = built_iso[:10]
     cutoff = (dt.date.fromisoformat(built_day) - dt.timedelta(days=550)).isoformat() if len(built_day) == 10 else ""
     top_ids: set[str] = set()
-    for sec in ("text", "ru", "web", "vision", "vision_hw"):
+    for sec in ("text", "ru", "web", "web_react", "vision", "vision_hw"):
         ranked = sorted((m for m in models if (m.get("arena") or {}).get(sec)), key=lambda m: -m["arena"][sec]["elo"])
         top_ids.update(m["id"] for m in ranked[:40])
     top_eci = sorted((m for m in models if m.get("eci")), key=lambda m: -m["eci"]["v"])
@@ -753,7 +809,7 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
     selected = []
     for m in models:
         ar = m.get("arena") or {}
-        has_special = bool(ar.get("agent") or m.get("contra") or (m.get("own") or {}).get("ege"))
+        has_special = bool(ar.get("agent") or m.get("contra") or m.get("code_video") or (m.get("own") or {}).get("ege"))
         confirmed = m.get("dsrc") in ("epoch", "epoch_benchmark") and bool(m.get("date"))
         is_recent = confirmed and (not cutoff or m["date"] >= cutoff) and bool(ar or m.get("eci") or m.get("price"))
         if has_special or is_recent or m["id"] in top_ids:
@@ -783,12 +839,14 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
         "contra", "contra_win", "ege", "ege_n",
         "eci", "physics", "mathx", "facts", "bench_mode",
         "price_in", "price_out", "price_blend", "ctx", "usd_rub", "meta_dates",
+        "web_react", "web_react_mode", "code_video", "code_video_win", "code_video_cost", "code_video_mode",
     ])
     for m in selected:
         ar = m.get("arena") or {}
         ag = ar.get("agent") or {}
         b = m.get("bench") or {}
         c = m.get("contra") or {}
+        cv = m.get("code_video") or {}
         ege = (m.get("own") or {}).get("ege") or {}
         p = m.get("price") or {}
         pin, pout = p.get("in"), p.get("out")
@@ -823,6 +881,11 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
             bmode,
             pin if pin is not None else "", pout if pout is not None else "", pblend,
             m.get("ctx") or "", fx_rate, meta_dates,
+            (ar.get("web_react") or {}).get("elo", ""), (ar.get("web_react") or {}).get("mode") or "",
+            cv.get("elo") if cv.get("elo") is not None else "",
+            cv.get("win_rate") if cv.get("win_rate") is not None else "",
+            cv.get("cost") if cv.get("cost") is not None else "",
+            cv.get("mode") or "",
         ])
     temp = (OUT / "sheet_catalog.csv").with_suffix(".tmp")
     temp.write_text(buf.getvalue(), encoding="utf-8")

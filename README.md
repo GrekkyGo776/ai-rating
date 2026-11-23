@@ -10,6 +10,7 @@
 | [Epoch AI](https://epoch.ai/benchmarks) | ECI, предметные тесты, режимы, интервалы и даты | CC BY 4.0 |
 | [OpenRouter](https://openrouter.ai/models) | базовые и ступенчатые тарифы, типы входа, контекст и предел ответа | публичный API |
 | [Contra Labs](https://contralabs.com/frontierdesign/leaderboard) | Elo, голоса, доля побед и оценки веб-дизайна | Frontier Design Benchmark |
+| [DesignArena](https://www.designarena.ai/leaderboard) | `Code to Video` (`agon_code_video`): Elo, доля побед, число сравнений и средняя цена рендера ролика | публичный лидерборд |
 | [Банк России](https://www.cbr.ru/currency_base/daily/) | курс доллара и дата его действия | официальный ежедневный курс |
 | Fizmat Hero | совпадения с экспертом, расхождения и размер выборки ЕГЭ | сводные результаты в `config/own_benchmarks.json` |
 

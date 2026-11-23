@@ -103,8 +103,13 @@ class CatalogTest(unittest.TestCase):
                  "rating": 1362.79, "rating_lower": 1341.39, "rating_upper": 1384.20,
                  "vote_count": 842, "rank": 1, "category": "homework", "leaderboard_publish_date": "2026-11-19"},
             ],
+            "webdev": [
+                {"model_name": "Claude Opus 5.5 (Max)", "organization": "anthropic", "license": "proprietary",
+                 "rating": 1873.3, "rating_lower": 1859.7, "rating_upper": 1886.8,
+                 "vote_count": 3445, "rank": 2, "category": "webdev-react", "leaderboard_publish_date": "2026-11-22"},
+            ],
         }
-        sections = [("agent", "agent_capability", "overall"), ("vision_hw", "vision", "homework")]
+        sections = [("agent", "agent_capability", "overall"), ("vision_hw", "vision", "homework"), ("web_react", "webdev", "webdev-react")]
         with patch.object(build, "ARENA_SECTIONS", sections), \
              patch.object(build, "_arena_rows_parquet", side_effect=lambda sub: fake_tables[sub]):
             arena = build.fetch_arena()
@@ -113,7 +118,12 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(arena["sections"]["agent"][0]["tokens_p50"], 42100)
         self.assertEqual(arena["sections"]["agent"][1]["cost_p50"], 1.93)
         self.assertEqual(arena["sections"]["vision_hw"][0]["elo"], 1362.8)
+        self.assertEqual(arena["sections"]["web_react"][0]["elo"], 1873.3)
 
+        designarena = {"models": [
+            {"id": "claude-opus-5-5", "elo": 1324.0, "win_rate": 0.728, "battles": 578, "cost": 2.38, "rank": 3},
+            {"id": "grogu", "elo": 1134.0, "win_rate": 0.45, "battles": 493, "cost": 1.0, "rank": 23},
+        ]}
         with tempfile.TemporaryDirectory() as folder:
             cache = Path(folder) / "cache"
             out = Path(folder) / "out"
@@ -123,6 +133,7 @@ class CatalogTest(unittest.TestCase):
                 "arena_history": {"first_seen": {}, "snaps": {}},
                 "epoch": {"models": [], "bench": {}},
                 "openrouter": {"models": []},
+                "designarena": designarena,
             }.items():
                 build.save_json(cache / f"{name}.json", payload)
             with patch.multiple(build, CACHE=cache, OUT=out, OWN=Path(folder) / "own.json"):
@@ -130,17 +141,20 @@ class CatalogTest(unittest.TestCase):
             csv_lines = (out / "agent_arena.csv").read_text(encoding="utf-8").splitlines()
             sheet_lines = (out / "sheet_catalog.csv").read_text(encoding="utf-8").splitlines()
         opus = rows["Claude Opus 5.5"]
+        self.assertNotIn("grogu", rows)
         self.assertEqual(opus["arena"]["agent"]["mode"], "Max")
         self.assertEqual(opus["arena"]["agent"]["cost_p50"], 5.79)
         self.assertEqual([v["mode"] for v in opus["arena"]["agent"]["variants"]], ["Max", "High"])
         self.assertEqual([v["cost_p50"] for v in opus["arena"]["agent"]["variants"]], [5.79, 1.93])
         self.assertEqual(opus["arena"]["vision_hw"]["elo"], 1362.8)
+        self.assertEqual(opus["arena"]["web_react"]["elo"], 1873.3)
+        self.assertEqual(opus["code_video"]["elo"], 1324.0)
+        self.assertEqual(opus["code_video"]["cost"], 2.38)
         self.assertTrue(csv_lines[0].startswith("rank,model,mode,org,cc,agent,"))
         self.assertIn("Claude Opus 5.5,Max,Anthropic,us,1342.1,", csv_lines[1])
         self.assertIn(",5.79,42100,9709,2026-11-22", csv_lines[1])
-        self.assertTrue(sheet_lines[0].startswith("id,name,org,flag_org,open,date,agent,"))
-        self.assertIn("claudeopus55,Claude Opus 5.5,Anthropic,🇺🇸 Anthropic,Нет,,1342.1,", sheet_lines[1])
-        self.assertIn(",1362.8,High,", sheet_lines[1])
+        self.assertTrue(sheet_lines[0].endswith(",web_react,web_react_mode,code_video,code_video_win,code_video_cost,code_video_mode"))
+        self.assertIn(",1873.3,Max,1324.0,0.728,2.38,", sheet_lines[1])
 
 
 if __name__ == "__main__":
