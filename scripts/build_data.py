@@ -717,9 +717,116 @@ def merge(status: dict | None = None) -> dict:
     save_json(OUT / "models.json", result)
     write_history(out, now.date().isoformat(), ahist.get("snaps", {}), arena.get("published"))
     write_agent_csv(out, arena.get("published"))
+    write_sheet_csv(out, result)
     matched = sum(1 for r in out if r["eci"] and r["arena"].get("text"))
     print(f"моделей на сайте: {len(out)}; с индексом Epoch и Arena: {matched}; с ценой: {sum(1 for r in out if r['price'])}")
     return result
+
+
+FLAGS_BY_CC = {
+    "us": "🇺🇸", "cn": "🇨🇳", "fr": "🇫🇷", "ae": "🇦🇪", "gb": "🇬🇧",
+    "ca": "🇨🇦", "kr": "🇰🇷", "il": "🇮🇱", "jp": "🇯🇵", "in": "🇮🇳", "ch": "🇨🇭", "de": "🇩🇪",
+}
+
+
+def _fmt_ci_ru(obj: dict | None, pct: bool = False) -> str:
+    if not obj or obj.get("lo") is None or obj.get("hi") is None:
+        return ""
+    lo, hi = obj["lo"], obj["hi"]
+    if pct:
+        return f"{lo * 100:.1f}% – {hi * 100:.1f}%".replace(".", ",")
+    return f"{lo:.1f} – {hi:.1f}".replace(".", ",")
+
+
+def write_sheet_csv(models: list[dict], result: dict) -> None:
+    """Компактный каталог (~200–280 актуальных моделей) для IMPORTDATA в Google Таблицу."""
+    built_iso = result.get("built") or ""
+    built_day = built_iso[:10]
+    cutoff = (dt.date.fromisoformat(built_day) - dt.timedelta(days=550)).isoformat() if len(built_day) == 10 else ""
+    top_ids: set[str] = set()
+    for sec in ("text", "ru", "web", "vision", "vision_hw"):
+        ranked = sorted((m for m in models if (m.get("arena") or {}).get(sec)), key=lambda m: -m["arena"][sec]["elo"])
+        top_ids.update(m["id"] for m in ranked[:40])
+    top_eci = sorted((m for m in models if m.get("eci")), key=lambda m: -m["eci"]["v"])
+    top_ids.update(m["id"] for m in top_eci[:40])
+
+    selected = []
+    for m in models:
+        ar = m.get("arena") or {}
+        has_special = bool(ar.get("agent") or m.get("contra") or (m.get("own") or {}).get("ege"))
+        confirmed = m.get("dsrc") in ("epoch", "epoch_benchmark") and bool(m.get("date"))
+        is_recent = confirmed and (not cutoff or m["date"] >= cutoff) and bool(ar or m.get("eci") or m.get("price"))
+        if has_special or is_recent or m["id"] in top_ids:
+            selected.append(m)
+
+    selected.sort(key=lambda m: (
+        -((m.get("arena") or {}).get("agent") or {}).get("elo", 0),
+        -((m.get("arena") or {}).get("text") or {}).get("elo", 0),
+        -(m.get("eci") or {}).get("v", 0),
+        m["name"],
+    ))
+
+    fx_rate = (result.get("fx") or {}).get("usd_rub") or ""
+    arena_pub = ((result.get("sources") or {}).get("arena") or {}).get("published") or ""
+    arena_pub_ru = ".".join(reversed(arena_pub.split("-"))) if len(arena_pub) == 10 else arena_pub
+    built_ru = f"{built_day[8:10]}.{built_day[5:7]}.{built_day[0:4]} {built_iso[11:16]}" if len(built_iso) >= 16 else built_iso
+    meta_dates = f"{built_ru} МСК · Arena {arena_pub_ru}" if arena_pub_ru else built_ru
+
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow([
+        "id", "name", "org", "flag_org", "open", "date",
+        "agent", "agent_ci", "agent_mode", "agent_sessions", "cost_p50",
+        "agent_work", "agent_work_mode", "agent_code", "agent_code_mode", "agent_outcome", "agent_outcome_mode",
+        "text", "text_mode", "ru", "ru_mode", "math", "math_mode",
+        "web", "web_mode", "vision", "vision_mode", "vision_hw", "vision_hw_mode",
+        "contra", "contra_win", "ege", "ege_n",
+        "eci", "physics", "mathx", "facts", "bench_mode",
+        "price_in", "price_out", "price_blend", "ctx", "usd_rub", "meta_dates",
+    ])
+    for m in selected:
+        ar = m.get("arena") or {}
+        ag = ar.get("agent") or {}
+        b = m.get("bench") or {}
+        c = m.get("contra") or {}
+        ege = (m.get("own") or {}).get("ege") or {}
+        p = m.get("price") or {}
+        pin, pout = p.get("in"), p.get("out")
+        pblend = round((3 * pin + pout) / 4, 4) if pin is not None and pout is not None else ""
+        flag = FLAGS_BY_CC.get(m.get("cc") or "", "")
+        flag_org = f"{flag} {m.get('org') or ''}".strip()
+        confirmed_date = m["date"] if m.get("dsrc") in ("epoch", "epoch_benchmark") and m.get("date") else ""
+        bmode = next((b[k].get("mode") for k in ("mathx", "facts", "physics", "science") if b.get(k) and b[k].get("mode")), "")
+        w.writerow([
+            m["id"], m["name"], m.get("org") or "", flag_org,
+            "Да" if m.get("open") is True else ("Нет" if m.get("open") is False else ""),
+            confirmed_date,
+            ag.get("elo", ""), _fmt_ci_ru(ag), ag.get("mode") or "", ag.get("votes") or "",
+            ag.get("cost_p50") if ag.get("cost_p50") is not None else "",
+            (ar.get("agent_work") or {}).get("elo", ""), (ar.get("agent_work") or {}).get("mode") or "",
+            (ar.get("agent_code") or {}).get("elo", ""), (ar.get("agent_code") or {}).get("mode") or "",
+            (ar.get("agent_outcome") or {}).get("elo", ""), (ar.get("agent_outcome") or {}).get("mode") or "",
+            (ar.get("text") or {}).get("elo", ""), (ar.get("text") or {}).get("mode") or "",
+            (ar.get("ru") or {}).get("elo", ""), (ar.get("ru") or {}).get("mode") or "",
+            (ar.get("math") or {}).get("elo", ""), (ar.get("math") or {}).get("mode") or "",
+            (ar.get("web") or {}).get("elo", ""), (ar.get("web") or {}).get("mode") or "",
+            (ar.get("vision") or {}).get("elo", ""), (ar.get("vision") or {}).get("mode") or "",
+            (ar.get("vision_hw") or {}).get("elo", ""), (ar.get("vision_hw") or {}).get("mode") or "",
+            c.get("elo") if c.get("elo") is not None else "",
+            c.get("win_rate") if c.get("win_rate") is not None else "",
+            ege.get("v") if ege.get("v") is not None else "",
+            ege.get("n") if ege.get("n") is not None else "",
+            (m.get("eci") or {}).get("v", ""),
+            (b.get("physics") or {}).get("v", ""),
+            (b.get("mathx") or {}).get("v", ""),
+            (b.get("facts") or {}).get("v", ""),
+            bmode,
+            pin if pin is not None else "", pout if pout is not None else "", pblend,
+            m.get("ctx") or "", fx_rate, meta_dates,
+        ])
+    temp = (OUT / "sheet_catalog.csv").with_suffix(".tmp")
+    temp.write_text(buf.getvalue(), encoding="utf-8")
+    temp.replace(OUT / "sheet_catalog.csv")
 
 
 def write_agent_csv(models: list[dict], published: str | None) -> None:
