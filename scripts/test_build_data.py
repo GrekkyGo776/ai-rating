@@ -139,8 +139,7 @@ class CatalogTest(unittest.TestCase):
         self.assertIn("Claude Opus 5.5,Max,Anthropic,us,1342.1,", csv_lines[1])
         self.assertIn(",5.79,42100,9709,2026-11-22", csv_lines[1])
         self.assertTrue(sheet_lines[0].startswith("id,name,org,flag_org,open,date,agent,"))
-        self.assertIn("claudeopus55,Claude Opus 5.5,Anthropic,🇺🇸 Anthropic,,", sheet_lines[1])
-        self.assertIn(",1342.1,", sheet_lines[1])
+        self.assertIn("claudeopus55,Claude Opus 5.5,Anthropic,🇺🇸 Anthropic,Нет,,1342.1,", sheet_lines[1])
         self.assertIn(",1362.8,High,", sheet_lines[1])
 
 
