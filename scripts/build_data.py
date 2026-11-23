@@ -716,9 +716,36 @@ def merge(status: dict | None = None) -> dict:
     OUT.mkdir(parents=True, exist_ok=True)
     save_json(OUT / "models.json", result)
     write_history(out, now.date().isoformat(), ahist.get("snaps", {}), arena.get("published"))
+    write_agent_csv(out, arena.get("published"))
     matched = sum(1 for r in out if r["eci"] and r["arena"].get("text"))
     print(f"моделей на сайте: {len(out)}; с индексом Epoch и Arena: {matched}; с ценой: {sum(1 for r in out if r['price'])}")
     return result
+
+
+def write_agent_csv(models: list[dict], published: str | None) -> None:
+    """Компактный CSV по Agent Arena для прямого импорта в Google Таблицу (IMPORTDATA)."""
+    rows = [m for m in models if (m.get("arena") or {}).get("agent")]
+    rows.sort(key=lambda m: (-(m["arena"]["agent"]["elo"]), m["name"]))
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["rank", "model", "mode", "org", "cc", "agent", "lo", "hi", "agent_work", "agent_code", "agent_outcome", "cost_p50", "tokens_p50", "sessions", "published"])
+    for idx, m in enumerate(rows, 1):
+        ar = m["arena"]
+        ag = ar["agent"]
+        w.writerow([
+            idx, m["name"], ag.get("mode") or "", m.get("org") or "", m.get("cc") or "",
+            ag["elo"], ag.get("lo") if ag.get("lo") is not None else "", ag.get("hi") if ag.get("hi") is not None else "",
+            (ar.get("agent_work") or {}).get("elo", ""),
+            (ar.get("agent_code") or {}).get("elo", ""),
+            (ar.get("agent_outcome") or {}).get("elo", ""),
+            ag.get("cost_p50") if ag.get("cost_p50") is not None else "",
+            ag.get("tokens_p50") if ag.get("tokens_p50") is not None else "",
+            ag.get("votes") or "",
+            published or "",
+        ])
+    temp = (OUT / "agent_arena.csv").with_suffix(".tmp")
+    temp.write_text(buf.getvalue(), encoding="utf-8")
+    temp.replace(OUT / "agent_arena.csv")
 
 
 def write_history(models: list[dict], day: str, arena_snaps: dict, arena_day: str | None) -> None:

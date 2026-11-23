@@ -127,12 +127,16 @@ class CatalogTest(unittest.TestCase):
                 build.save_json(cache / f"{name}.json", payload)
             with patch.multiple(build, CACHE=cache, OUT=out, OWN=Path(folder) / "own.json"):
                 rows = {row["name"]: row for row in build.merge()["models"]}
+            csv_lines = (out / "agent_arena.csv").read_text(encoding="utf-8").splitlines()
         opus = rows["Claude Opus 5.5"]
         self.assertEqual(opus["arena"]["agent"]["mode"], "Max")
         self.assertEqual(opus["arena"]["agent"]["cost_p50"], 5.79)
         self.assertEqual([v["mode"] for v in opus["arena"]["agent"]["variants"]], ["Max", "High"])
         self.assertEqual([v["cost_p50"] for v in opus["arena"]["agent"]["variants"]], [5.79, 1.93])
         self.assertEqual(opus["arena"]["vision_hw"]["elo"], 1362.8)
+        self.assertTrue(csv_lines[0].startswith("rank,model,mode,org,cc,agent,"))
+        self.assertIn("Claude Opus 5.5,Max,Anthropic,us,1342.1,", csv_lines[1])
+        self.assertIn(",5.79,42100,9709,2026-11-22", csv_lines[1])
 
 
 if __name__ == "__main__":
