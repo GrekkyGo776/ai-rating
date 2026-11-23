@@ -43,6 +43,10 @@ UA = "ai-rating-site/1.0 (+https://ai.fizmat.guru)"
 HF_DATASET = "lmarena-ai/leaderboard-dataset"
 # Разделы Arena, которые показываем: (id на сайте, подмножество набора, категория)
 ARENA_SECTIONS = [
+    ("agent", "agent_capability", "overall"),
+    ("agent_work", "agent_capability", "work"),
+    ("agent_code", "agent_capability", "code"),
+    ("agent_outcome", "agent_task_outcome", "overall"),
     ("text", "text_style_control", "overall"),
     ("ru", "text_style_control", "russian"),
     ("math", "text_style_control", "math"),
@@ -51,6 +55,7 @@ ARENA_SECTIONS = [
     ("hard", "text_style_control", "hard_prompts"),
     ("web", "webdev", "overall"),
     ("vision", "vision", "overall"),
+    ("vision_hw", "vision", "homework"),
     ("doc", "document", "overall"),
 ]
 EPOCH_ZIP = "https://epoch.ai/data/benchmark_data.zip"
@@ -100,6 +105,16 @@ def _arena_rows_json(subset: str, category: str) -> list[dict]:
             return rows
 
 
+def _arena_num(row: dict, *cols: str) -> float | None:
+    for col in cols:
+        val = row.get(col)
+        if val is not None:
+            num = float(val)
+            if math.isfinite(num):
+                return num
+    return None
+
+
 def fetch_arena() -> dict:
     try:
         import pyarrow  # noqa: F401
@@ -109,29 +124,57 @@ def fetch_arena() -> dict:
     by_subset: dict[str, list[dict]] = {}
     sections = {}
     published = None
-    for sid, subset, category in ARENA_SECTIONS:
+
+    def load_rows(subset: str, category: str) -> list[dict]:
         if use_parquet:
             if subset not in by_subset:
                 by_subset[subset] = _arena_rows_parquet(subset)
-            rows = [r for r in by_subset[subset] if r.get("category") == category]
-        else:
-            rows = _arena_rows_json(subset, category)
+            return [r for r in by_subset[subset] if r.get("category") == category]
+        return _arena_rows_json(subset, category)
+
+    # Медианная стоимость реальной агентной задачи и объём вывода из поднабора agent
+    agent_costs: dict[str, dict] = {}
+    try:
+        for r in load_rows("agent", "overall"):
+            cost = _arena_num(r, "cost_per_task_p50")
+            toks = _arena_num(r, "output_tokens_per_task_p50")
+            meta = {}
+            if cost is not None and cost >= 0:
+                meta["cost_p50"] = round(cost, 2)
+            if toks is not None and toks >= 0:
+                meta["tokens_p50"] = int(round(toks))
+            if meta:
+                agent_costs[r["model_name"]] = meta
+    except Exception as e:  # noqa: BLE001 — отсутствие цен не должно ломать весь Arena
+        print(f"! agent cost metadata skipped: {e}", file=sys.stderr)
+
+    for sid, subset, category in ARENA_SECTIONS:
+        rows = load_rows(subset, category)
         if not rows:
             raise RuntimeError(f"Arena: пустой раздел {subset}/{category}")
-        published = max(published or "", max(str(r["leaderboard_publish_date"]) for r in rows))
-        sections[sid] = [
-            {
+        published = max(published or "", max(str(r["leaderboard_publish_date"])[:10] for r in rows))
+        parsed = []
+        for r in rows:
+            elo = _arena_num(r, "rating", "index_score")
+            if elo is None:
+                continue
+            lo = _arena_num(r, "rating_lower", "index_score_ci_lower")
+            hi = _arena_num(r, "rating_upper", "index_score_ci_upper")
+            votes = int(round(_arena_num(r, "vote_count", "session_count", "observation_count") or 0))
+            item = {
                 "name": r["model_name"],
                 "org": r.get("organization") or "",
                 "license": r.get("license") or "",
-                "elo": round(float(r["rating"]), 1),
-                "lo": round(float(r["rating_lower"]), 1),
-                "hi": round(float(r["rating_upper"]), 1),
-                "votes": int(r["vote_count"] or 0),
+                "elo": round(elo, 1),
+                "lo": round(lo, 1) if lo is not None else None,
+                "hi": round(hi, 1) if hi is not None else None,
+                "votes": votes,
                 "rank": int(r["rank"]),
             }
-            for r in rows
-        ]
+            if sid == "agent" and r["model_name"] in agent_costs:
+                item.update(agent_costs[r["model_name"]])
+            parsed.append(item)
+        sections[sid] = parsed
     return {"published": published, "sections": sections}
 
 
@@ -294,9 +337,9 @@ def fetch_contra_source() -> dict:
 
 # Полная история Arena: когда модель впервые появилась (дата для моделей, которых нет в Epoch и OpenRouter)
 # и места за последние 60 дней (стрелки ▲▼). Файл text_style_control — около 60 МБ, читаем только нужные колонки.
-HIST_SECTIONS = [("text", "text_style_control", "overall"), ("ru", "text_style_control", "russian"),
-                 ("math", "text_style_control", "math"), ("web", "webdev", "overall"), ("vision", "vision", "overall"),
-                 ("doc", "document", "overall")]
+HIST_SECTIONS = [("agent", "agent_capability", "overall"), ("text", "text_style_control", "overall"),
+                 ("ru", "text_style_control", "russian"), ("math", "text_style_control", "math"),
+                 ("web", "webdev", "overall"), ("vision", "vision", "overall"), ("doc", "document", "overall")]
 
 
 def fetch_arena_history() -> dict:
@@ -306,27 +349,34 @@ def fetch_arena_history() -> dict:
     first: dict[str, str] = {}
     snaps: dict[str, dict] = {}
     tables = {}
+    score_cols = {}
     for _, subset, _ in HIST_SECTIONS:
         if subset in tables:
             continue
+        score_col = "index_score" if subset.startswith("agent_") else "rating"
+        score_cols[subset] = score_col
         url = f"https://huggingface.co/datasets/{HF_DATASET}/resolve/main/{subset}/full-00000-of-00001.parquet"
         tables[subset] = pq.read_table(io.BytesIO(http_get(url, timeout=300)),
-                                       columns=["model_name", "category", "leaderboard_publish_date", "rating"])
-    latest = max(str(d) for tb in tables.values() for d in pc.unique(tb["leaderboard_publish_date"]).to_pylist())
+                                       columns=["model_name", "category", "leaderboard_publish_date", score_col])
+    latest = max(str(d)[:10] for tb in tables.values() for d in pc.unique(tb["leaderboard_publish_date"]).to_pylist())
     since = (dt.date.fromisoformat(latest[:10]) - dt.timedelta(days=60)).isoformat()
     for sid, subset, category in HIST_SECTIONS:
         tb = tables[subset]
+        score_col = score_cols[subset]
         rows = tb.filter(pc.equal(tb["category"], category)).to_pylist()
         best: dict[str, dict[str, float]] = {}
         for r in rows:
+            val = r.get(score_col)
+            if val is None or not math.isfinite(float(val)):
+                continue
             d = str(r["leaderboard_publish_date"])[:10]
             k = key(r["model_name"])
             if k not in first or d < first[k]:
                 first[k] = d
             if d >= since:
                 day = best.setdefault(d, {})
-                if r["rating"] > day.get(k, -1e9):
-                    day[k] = r["rating"]
+                if float(val) > day.get(k, -1e9):
+                    day[k] = float(val)
         for d, day in best.items():
             snaps.setdefault(d, {})[sid] = [k for k, _ in sorted(day.items(), key=lambda kv: -kv[1])[:50]]
     return {"latest": latest, "first_seen": first, "snaps": snaps}
@@ -511,9 +561,17 @@ def merge(status: dict | None = None) -> dict:
             k = key(r["name"])
             m = get(k)
             base, mode = strip_mode(r["name"])
-            add_measurement(m["arena"], sid, {"elo": r["elo"], "lo": r["lo"], "hi": r["hi"],
-                            "votes": r["votes"], "rank": r["rank"], "mode": mode,
-                            "source_label": r["name"], "interval_type": "arena"}, "elo")
+            sample = {
+                "elo": r["elo"], "lo": r["lo"], "hi": r["hi"],
+                "votes": r["votes"], "rank": r["rank"], "mode": mode,
+                "source_label": r["name"],
+                "interval_type": "arena_agent" if sid.startswith("agent") else "arena",
+            }
+            if r.get("cost_p50") is not None:
+                sample["cost_p50"] = r["cost_p50"]
+            if r.get("tokens_p50") is not None:
+                sample["tokens_p50"] = r["tokens_p50"]
+            add_measurement(m["arena"], sid, sample, "elo")
             if "aname" not in m or sid == "text" and m["arena"][sid]["source_label"] == r["name"]:
                 m["aname"] = base
             m.setdefault("org", org_name(r["org"]))
@@ -622,7 +680,11 @@ def merge(status: dict | None = None) -> dict:
         }
         out.append(rec)
 
-    out.sort(key=lambda r: (-(r["eci"] or {}).get("v", 0), -(r["arena"].get("text") or {}).get("elo", 0)))
+    out.sort(key=lambda r: (
+        -(r["eci"] or {}).get("v", 0),
+        -(r["arena"].get("agent") or {}).get("elo", 0),
+        -(r["arena"].get("text") or {}).get("elo", 0),
+    ))
     now = dt.datetime.now(MSK)
     caches = {"arena": arena, "arena_history": ahist, "epoch": epoch, "openrouter": orouter, "contra": contra, "cbr": fx}
     if status is None:
@@ -670,7 +732,7 @@ def write_history(models: list[dict], day: str, arena_snaps: dict, arena_day: st
                 hist[d] = {k: v for k, v in snap.items() if k == "eci"}
     for d, snap in arena_snaps.items():
         hist.setdefault(d, {}).update(snap)
-    for metric in ("eci", "text", "ru", "math", "web", "vision"):
+    for metric in ("agent", "eci", "text", "ru", "math", "web", "vision"):
         capture_day = day if metric == "eci" else arena_day
         if not capture_day or (capture_day in arena_snaps and metric in arena_snaps[capture_day]):
             continue

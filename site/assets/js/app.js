@@ -4,10 +4,20 @@
   const $ = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const SECTIONS = [
-    ["text", "Общий зачёт"], ["ru", "Русский язык"], ["math", "Математика"], ["code", "Программирование"],
-    ["creative", "Творческие тексты"], ["hard", "Сложные запросы"], ["web", "Сайты и веб-код"], ["vision", "Зрение: фото и схемы"],
-    ["doc", "Документы и PDF"],
+    ["agent", "Агент · общий зачёт"], ["agent_work", "Агент · рабочие задачи"],
+    ["agent_code", "Агент · код"], ["agent_outcome", "Агент · доведение задачи"],
+    ["text", "Общий чат"], ["ru", "Русский язык"], ["math", "Математика"], ["code", "Программирование"],
+    ["creative", "Творческие тексты"], ["hard", "Сложные запросы"], ["web", "Сайты и веб-код"],
+    ["vision", "Зрение: фото и схемы"], ["vision_hw", "Домашки по фото"], ["doc", "Документы и PDF"],
   ];
+  const isAgentSec = (s) => typeof s === "string" && s.startsWith("agent");
+  const isNonLlmContra = (m) => m.id === "gestalt" || m.org === "Gestalt";
+  const modeTag = (mode) => mode ? `<span class="tag mode" title="Уровень рассуждения">${esc(mode)}</span>` : "";
+  const rubApprox = (usdVal) => {
+    const fx = D?.fx;
+    if (usdVal == null || !Number.isFinite(fx?.usd_rub) || fx.usd_rub <= 0) return "";
+    return ` ≈ ${nf(usdVal * fx.usd_rub, 0)} ₽`;
+  };
   // Тесты с правильными ответами: колонка «Тесты» в таблице переключается между ними
   const TESTS = [
     ["eci", "Индекс Epoch", "индекс"], ["physics", "Физика · CritPt", "%"], ["mathx", "Сложная математика · FrontierMath", "%"],
@@ -45,21 +55,26 @@
   function setPeriod(d) {
     PERIOD = d; try { localStorage.setItem(PERIOD_KEY, String(d)); } catch (e) { /* без памяти */ }
     CUTOFF = PERIOD > 0 ? new Date(new Date(D.built).getTime() - PERIOD * 864e5).toISOString().slice(0, 10) : "";
-    if (openZ) { const z = ZACHETS.find(x => x.id === openZ); const list = zachetList(z); if (!list.length || (!z.own && !coversFamilies(list.map(x => x.m)))) openZ = null; }
+    if (openZ) { const z = ZACHETS.find(x => x.id === openZ); const list = zachetList(z); if (!list.length || (!z.independent && !coversFamilies(list.map(x => x.m)))) openZ = null; }
     updateRankingOptions(); renderStatus(); renderLeaders(); renderZachet(); renderTasks(); renderTable(); renderCharts();
   }
 
   // ───────── метрики ─────────
   const metric = {
     eci: (m) => m.eci?.v ?? null,
+    agent: (m) => m.arena.agent?.elo ?? null, agent_work: (m) => m.arena.agent_work?.elo ?? null,
+    agent_code: (m) => m.arena.agent_code?.elo ?? null, agent_outcome: (m) => m.arena.agent_outcome?.elo ?? null,
     text: (m) => m.arena.text?.elo ?? null, ru: (m) => m.arena.ru?.elo ?? null, math: (m) => m.arena.math?.elo ?? null,
     code: (m) => m.arena.code?.elo ?? null, creative: (m) => m.arena.creative?.elo ?? null, hard: (m) => m.arena.hard?.elo ?? null,
-    web: (m) => m.arena.web?.elo ?? null, vision: (m) => m.arena.vision?.elo ?? null, doc: (m) => m.arena.doc?.elo ?? null,
+    web: (m) => m.arena.web?.elo ?? null, vision: (m) => m.arena.vision?.elo ?? null, vision_hw: (m) => m.arena.vision_hw?.elo ?? null,
+    doc: (m) => m.arena.doc?.elo ?? null, contra: (m) => m.contra?.elo ?? null,
     physics: (m) => m.bench?.physics?.v ?? null, mathx: (m) => m.bench?.mathx?.v ?? null,
     science: (m) => m.bench?.science?.v ?? null, facts: (m) => m.bench?.facts?.v ?? null, ege: (m) => m.own?.ege?.v ?? null,
   };
-  const MLABEL = { eci: "тесты", text: "Arena", ru: "русский", math: "математика", code: "код", creative: "тексты", hard: "сложные", web: "веб",
-    vision: "зрение", doc: "документы", physics: "физика", mathx: "сложная мат.", science: "наука", facts: "факты", ege: "ЕГЭ" };
+  const MLABEL = { eci: "тесты", agent: "агент", agent_work: "работа", agent_code: "агент-код", agent_outcome: "результат",
+    text: "Arena", ru: "русский", math: "математика", code: "код", creative: "тексты", hard: "сложные", web: "веб",
+    vision: "зрение", vision_hw: "домашки", doc: "документы", contra: "дизайн",
+    physics: "физика", mathx: "сложная мат.", science: "наука", facts: "факты", ege: "ЕГЭ" };
 
   // Поколения определяем по всему каталогу до применения фильтров.
   const families = {
@@ -102,14 +117,16 @@
 
   // ───────── подбор под задачу ─────────
   const TASKS = [
+    { id: "agent", name: "Агент и сложная работа", text: "Многошаговые задачи, проекты с файлами и кодом, где модель должна доводить дело до результата.", need: "agent",
+      w: { agent: 0.45, agent_outcome: 0.30, web: 0.15, facts: 0.10 } },
     { id: "study", name: "Учёба и объяснения", text: "Объяснить тему, разобрать задачу, ответить на вопрос ученика по-русски и не выдумать лишнего.", need: "ru",
       w: { ru: 0.35, math: 0.3, facts: 0.15, eci: 0.2 } },
     { id: "physics", name: "Физика и наука", text: "Сложные задачи по физике и математике, научные вопросы.", need: "physics",
       w: { physics: 0.4, mathx: 0.25, science: 0.1, eci: 0.25 } },
-    { id: "photo", name: "Проверка решений по фото", text: "Прочитать фото тетради или схему и найти ошибку в решении.", need: "vision",
-      w: { vision: 0.5, math: 0.3, eci: 0.2 } },
-    { id: "code", name: "Программирование и сайты", text: "Писать код, делать сайты и приложения.", need: "web",
-      w: { web: 0.45, code: 0.3, eci: 0.25 } },
+    { id: "photo", name: "Проверка решений по фото", text: "Прочитать фото тетради, домашку или схему и найти ошибку в решении.", need: "vision",
+      w: { vision_hw: 0.4, vision: 0.3, math: 0.15, eci: 0.15 } },
+    { id: "code", name: "Программирование и сайты", text: "Писать код, вести проекты, делать сайты и приложения.", need: "web",
+      w: { web: 0.35, agent_code: 0.30, code: 0.20, eci: 0.15 } },
     { id: "texts", name: "Тексты на русском", text: "Посты, письма, сценарии и всё, где важен живой русский язык.", need: "ru",
       w: { ru: 0.55, creative: 0.45 } },
     { id: "cheap", name: "Дёшево и сердито", text: "Хорошее качество за минимальные деньги через API. Слабые модели сюда не попадают.", need: "price",
@@ -117,8 +134,9 @@
     { id: "open", name: "Открытые модели", text: "Модели с открытыми весами: можно запустить на своём сервере.", need: "open",
       w: { eci: 0.5, text: 0.5 } },
   ];
-  const WLABEL = { ru: "Arena · русский язык", math: "Arena · математика", eci: "Тесты · Epoch", vision: "Arena · зрение",
-    web: "Arena · сайты и веб-код", code: "Arena · программирование", creative: "Arena · творческие тексты", text: "Arena · общий зачёт",
+  const WLABEL = { agent: "Agent Arena · общий зачёт", agent_outcome: "Agent Arena · доведение задачи", agent_code: "Agent Arena · код",
+    ru: "Arena · русский язык", math: "Arena · математика", eci: "Тесты · Epoch", vision: "Arena · зрение", vision_hw: "Arena · домашки по фото",
+    web: "Arena · сайты и веб-код", code: "Arena · программирование", creative: "Arena · творческие тексты", text: "Arena · общий чат",
     quality: "Качество: тесты и Arena", cheap: "Низкая цена", facts: "Тесты · факты (SimpleQA)", physics: "Тесты · физика (CritPt)",
     mathx: "Тесты · сложная математика (FrontierMath)", science: "Тесты · наука (GPQA)", doc: "Arena · документы" };
 
@@ -142,7 +160,7 @@
     return { score: s / wsum, parts };
   }
 
-  let curTask = "study";
+  let curTask = "agent";
   function renderTasks() {
     const box = $("#tasks");
     const candidates = models();
@@ -157,14 +175,26 @@
       $("#recipe").replaceChildren();
       return;
     }
+    const taskMode = (tid, m) => {
+      if (tid === "agent") return m.arena?.agent?.mode || "";
+      if (tid === "photo") return m.arena?.vision_hw?.mode || m.arena?.vision?.mode || "";
+      if (tid === "code") return m.arena?.web?.mode || m.arena?.agent_code?.mode || m.arena?.code?.mode || "";
+      if (tid === "physics") return m.bench?.physics?.mode || "";
+      if (tid === "study" || tid === "texts") return m.arena?.ru?.mode || "";
+      return m.arena?.text?.mode || "";
+    };
     const ranked = rankings.get(t.id).sort((a, b) => b.r.score - a.r.score).slice(0, 5);
-    $("#podium").innerHTML = ranked.map(({ m, r }, i) => `<li>
+    $("#podium").innerHTML = ranked.map(({ m, r }, i) => {
+      const pm = taskMode(t.id, m);
+      const costNote = t.id === "agent" && m.arena?.agent?.cost_p50 != null ? `<span>~$${money(m.arena.agent.cost_p50)} / задача</span>` : "";
+      return `<li>
       <span class="n">${i + 1}</span>
-      <div class="nm"><b>${esc(m.name)}</b><div class="why"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org)}</span>${
+      <div class="nm"><b>${esc(m.name)} ${modeTag(pm)}</b><div class="why"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org)}</span>${
         Object.entries(r.parts).map(([k, v]) => `<span>${esc(k === "quality" ? "качество" : k === "cheap" ? "цена" : MLABEL[k])} ${Math.round(v * 100)}</span>`).join("")}${
-        t.id === "cheap" ? `<span>$${money(blended(m))}</span>` : ""}</div></div>
+        costNote}${t.id === "cheap" ? `<span>$${money(blended(m))}</span>` : ""}</div></div>
       <div class="sc"><b>${Math.round(r.score * 100)}</b><span class="meter"><i style="width:${Math.round(r.score * 100)}%"></i></span></div>
-    </li>`).join("") || `<li><span class="n">—</span><div class="nm">Пока нет моделей с нужными оценками.</div><span></span></li>`;
+    </li>`;
+    }).join("") || `<li><span class="n">—</span><div class="nm">Пока нет моделей с нужными оценками.</div><span></span></li>`;
     $("#recipe").innerHTML = `<h3>${esc(t.name)}</h3><p>${esc(t.text)}</p><div class="weights">${
       Object.entries(t.w).map(([k, w]) => `<div><span>${esc(WLABEL[k])}</span><span class="mono r">${Math.round(w * 100)}%</span><span class="bar"><i style="width:${w * 100}%"></i></span></div>`).join("")
     }</div><p>Баллы — место модели в каждом рейтинге по шкале 0–100.</p>`;
@@ -176,29 +206,41 @@
   const winOf = (d) => Math.round(100 / (1 + 10 ** (-d / 400)));
   const overlap = (a,b) => [a.lo,a.hi,b.lo,b.hi].every(Number.isFinite) && a.lo <= b.hi && b.lo <= a.hi;
   const pts = (n) => `${nf(n, 0)} ${plural(Math.round(n), "очко", "очка", "очков")}`;
-  function verdict(a, b, kind) {
+  function verdict(a, b, kind, z) {
     const d = a.v - b.v;
     if (overlap(a,b)) return {cls:"tie", text:"интервалы пересекаются"};
     if ([a.lo,a.hi,b.lo,b.hi].some(x => x == null)) {
-      const diff = kind === "pct" ? nf(100*d,1)+" п.п." : nf(d,1);
+      const diff = kind === "pct" ? nf(100*d,1)+" п.п." : kind === "contra" ? pts(d) : nf(d,1);
       return {cls:"na", text:"Разница "+diff+" · интервал не опубликован"};
     }
     if (kind === "eci") return { cls: d >= 5 ? "far" : "lead", text: `${d >= 5 ? "явный отрыв" : "отрыв"} ${nf(d, 1)}` };
     if (kind === "pct") {
       return { cls: d >= 0.05 ? "far" : "lead", text: `${d >= 0.05 ? "явный отрыв" : "отрыв"} ${nf(d * 100, 1)} п.п.` };
     }
+    if (z && isAgentSec(z.sec)) {
+      return { cls: d >= 50 ? "far" : "lead", text: `${d >= 50 ? "явный отрыв" : "отрыв"} ${pts(d)}` };
+    }
     return { cls: d >= 50 ? "far" : "lead", text: `${d >= 50 ? "явный отрыв" : "отрыв"} ${pts(d)} · выбирают в ${winOf(d)} из 100` };
   }
 
   // ───────── лидеры и полные зачёты ─────────
   const GROUPS = [
+    { id: "agents", title: "Агенты · реальная работа", sub: "многошаговые задачи, код и доведение до результата на Agent Arena" },
     { id: "tests", title: "Тесты", sub: "задачи с правильными ответами" },
     { id: "people", title: "Люди выбирают", sub: "слепые сравнения ответов на Arena" },
-    { id: "practice", title: "Практика", sub: "наш зачёт, деньги и новинки" },
+    { id: "practice", title: "Практика", sub: "веб-дизайн, наш зачёт, деньги и новинки" },
   ];
   const ZACHETS = [
+    { id: "agent", g: "agents", what: "Агент · общий зачёт", unit: "индекс · Agent Arena", kind: "arena", sec: "agent",
+      about: "Реальные многошаговые рабочие сессии с файлами, кодом и инструментами (Agent Capability Index). Показан лучший режим рассуждения каждой модели и медианная стоимость одной задачи." },
+    { id: "agent_work", g: "agents", what: "Рабочие задачи", unit: "индекс · Agent Arena", kind: "arena", sec: "agent_work",
+      about: "Многошаговые прикладные задачи (анализ, документы, работа с проектом) в Agent Arena." },
+    { id: "agent_code", g: "agents", what: "Агентный код", unit: "индекс · Agent Arena", kind: "arena", sec: "agent_code",
+      about: "Разработка и отладка кода в реальной среде с запуском команд и правкой файлов (Agent Arena · Code)." },
+    { id: "agent_outcome", g: "agents", what: "Доводит задачу до конца", unit: "индекс · Agent Arena", kind: "arena", sec: "agent_outcome",
+      about: "Как часто агент доводит задачу до нужного результата без срыва и ручных доделок (Agent Task Outcome)." },
     { id: "eci", g: "tests", what: "Сильнее всех по тестам", unit: "индекс Epoch", kind: "eci",
-      about: "Индекс Epoch AI: сводная оценка по десяткам сложных тестов — математика, код, наука, рассуждения. Больше — сильнее." },
+      about: "Индекс Epoch AI: сводная оценка по десяткам сложных тестов — математика, код, наука, рассуждения. Больше — сильнее. Единый уровень рассуждения источник для ECI не указывает." },
     { id: "physics", g: "tests", what: "Физика", unit: "% задач · CritPt", kind: "pct", src: "bench",
       about: "CritPt: задачи уровня научной работы по физике — от конденсированного состояния до астрофизики, их составили сами исследователи. Это намного сложнее олимпиад. Погрешность источник не публикует, поэтому устойчивость небольших различий по этим данным неизвестна." },
     { id: "mathx", g: "tests", what: "Сложная математика", unit: "% задач · FrontierMath", kind: "pct", src: "bench",
@@ -207,7 +249,7 @@
       about: "GPQA Diamond: вопросы по физике, химии и биологии уровня аспиранта, на которые не найти ответ поиском. У лидеров тест упёрся в потолок, около 97 %: разница в верхушке почти ничего не значит." },
     { id: "facts", g: "tests", what: "Не выдумывает факты", unit: "% верно · SimpleQA Verified", kind: "pct", src: "bench",
       about: "SimpleQA Verified: короткие вопросы о фактах с одним правильным ответом. Чем выше, тем реже модель уверенно сочиняет неправду." },
-    { id: "text", g: "people", what: "Лучшие ответы в чате", unit: "Elo · Arena, общий зачёт", kind: "arena", sec: "text",
+    { id: "text", g: "people", what: "Лучшие ответы в чате", unit: "Elo · Arena, общий чат", kind: "arena", sec: "text",
       about: "Человек задаёт в чате любой вопрос и выбирает лучший из двух текстовых ответов неизвестных моделей. Длина и оформление ответа бонуса не дают. Это не про вёрстку и дизайн — для них зачёт «Сайты и веб-код»." },
     { id: "ru", g: "people", what: "Лучше всех по-русски", unit: "Elo · Arena, русский язык", kind: "arena", sec: "ru",
       about: "Тот же слепой выбор лучшего ответа, но вопросы задают на русском языке." },
@@ -217,9 +259,13 @@
       about: "Человек просит сделать сайт или приложение, видит две готовые страницы и выбирает лучшую. Ближе всего к вопросу «кто лучше оформляет и верстает»." },
     { id: "vision", g: "people", what: "Зрение: фото и схемы", unit: "Elo · Arena, зрение", kind: "arena", sec: "vision",
       about: "Вопросы с картинкой: фото, схемы, графики, скриншоты. Слепой выбор лучшего ответа." },
+    { id: "vision_hw", g: "people", what: "Домашки по фото", unit: "Elo · Arena, зрение / homework", kind: "arena", sec: "vision_hw",
+      about: "Срез Arena Vision по учебным и домашним задачам с фотографиями и схемами. Слепой выбор лучшего ответа." },
     { id: "doc", g: "people", what: "Документы и PDF", unit: "Elo · Arena, документы", kind: "arena", sec: "doc",
       about: "Человек загружает документ — PDF, статью, учебник — и задаёт по нему вопрос. Слепой выбор лучшего ответа." },
-    { id: "ege", g: "practice", what: "Проверка ЕГЭ по физике", unit: "совпадений с экспертом · fizmat.guru", kind: "pct", src: "own", own: true,
+    { id: "contra", g: "practice", what: "Веб-дизайн · ИИ-модели", unit: "Elo · Contra Labs", kind: "contra", independent: true,
+      about: "Профессиональные дизайнеры вслепую сравнивают сайты, сделанные по одному брифу (Frontier Design Benchmark). На карточке показан лидер среди чат-моделей; специализированная дизайн-система Gestalt вынесена в сноску. Уровень рассуждения источник не публикует." },
+    { id: "ege", g: "practice", what: "Проверка ЕГЭ по физике", unit: "совпадений с экспертом · fizmat.guru", kind: "pct", src: "own", own: true, independent: true,
       about: "Наш зачёт. Модель проверяет решения второй части ЕГЭ по физике (задания 21–26) по критериям ФИПИ, как эксперт на экзамене. Считаем, как часто её балл совпал с баллом настоящего эксперта." },
     { id: "cheap", g: "practice", what: "Выгоднее всех", unit: "за 1 млн токенов при сильном качестве", kind: "cheap",
       about: "Модели с сильным качеством по тестам и Arena, по оценке «качество за деньги» (рецепт — в подборе «Дёшево и сердито»)." },
@@ -227,37 +273,48 @@
       about: "Новые модели по дате выхода, если у них уже есть оценки." },
   ];
   function zachetList(z) {
-    if (z.kind === "eci") return models().filter((m) => m.eci).sort((a, b) => b.eci.v - a.eci.v).map((m) => ({ m, v: m.eci.v, lo: m.eci.lo, hi: m.eci.hi }));
+    if (z.kind === "eci") return models().filter((m) => m.eci).sort((a, b) => b.eci.v - a.eci.v).map((m) => ({ m, v: m.eci.v, lo: m.eci.lo, hi: m.eci.hi, mode: m.eci.mode || "" }));
     if (z.kind === "pct") return (z.own ? D.models : models()).filter((m) => m[z.src]?.[z.id]).sort((a, b) => b[z.src][z.id].v - a[z.src][z.id].v)
-      .map((m) => ({ m, ...m[z.src][z.id] }));
+      .map((m) => ({ m, ...m[z.src][z.id], mode: m[z.src][z.id].mode || "" }));
     if (z.kind === "arena") return models().filter((m) => m.arena[z.sec]).sort((a, b) => b.arena[z.sec].elo - a.arena[z.sec].elo)
-      .map((m) => ({ m, v: m.arena[z.sec].elo, lo: m.arena[z.sec].lo, hi: m.arena[z.sec].hi, votes: m.arena[z.sec].votes }));
+      .map((m) => ({ m, v: m.arena[z.sec].elo, lo: m.arena[z.sec].lo, hi: m.arena[z.sec].hi, votes: m.arena[z.sec].votes, mode: m.arena[z.sec].mode || "", cost_p50: m.arena[z.sec].cost_p50 ?? null }));
+    if (z.kind === "contra") return D.models.filter((m) => m.contra?.elo != null).sort((a, b) => b.contra.elo - a.contra.elo)
+      .map((m) => ({ m, v: m.contra.elo, lo: null, hi: null, votes: m.contra.votes, win_rate: m.contra.win_rate, rubric: m.contra.rubric, mode: "", nonLlm: isNonLlmContra(m) }));
     if (z.kind === "cheap") {
       const t = TASKS.find((x) => x.id === "cheap");
       return models().map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score)
-        .map((x) => ({ m: x.m, v: blended(x.m), score: x.r.score }));
+        .map((x) => ({ m: x.m, v: blended(x.m), score: x.r.score, mode: "" }));
     }
-    return models().filter((m) => freshRelease(m) && (m.eci || (m.arena.text && m.arena.text.rank <= 60)))
-      .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date }));
+    return models().filter((m) => freshRelease(m) && (m.eci || m.arena.agent || (m.arena.text && m.arena.text.rank <= 60)))
+      .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date, mode: "" }));
   }
   const pctf = (v) => `${nf(v * 100, 1)} %`;
-  const zVal = (z, x) => z.kind === "eci" ? nf(x.v, 1) : z.kind === "pct" ? pctf(x.v) : z.kind === "arena" ? nf(x.v, 0) : z.kind === "cheap" ? "$" + money(x.v) : dayLong(x.v);
+  const zVal = (z, x) => z.kind === "eci" ? nf(x.v, 1) : z.kind === "pct" ? pctf(x.v) : (z.kind === "arena" || z.kind === "contra") ? nf(x.v, 0) : z.kind === "cheap" ? "$" + money(x.v) : dayLong(x.v);
+  const runnerItem = (z, x) => `${esc(x.m.name)}${x.mode ? ` · ${esc(x.mode)}` : ""} — ${zVal(z, x)}`;
 
   let openZ = null;
   function leaderCard(z) {
     const list = zachetList(z);
-    if (!list.length || (!z.own && !coversFamilies(list.map(x => x.m)))) return "";
-    const [a, b, c] = list;
-    const v = b && (z.kind === "eci" || z.kind === "arena" || z.kind === "pct") ? verdict(a, b, z.kind) : null;
+    if (!list.length || (!z.independent && !coversFamilies(list.map(x => x.m)))) return "";
+    const ranked = z.kind === "contra" ? list.filter((x) => !x.nonLlm) : list;
+    const nonLlmTop = z.kind === "contra" ? list.find((x) => x.nonLlm) : null;
+    if (!ranked.length) return "";
+    const [a, b, c] = ranked;
+    const v = b && (z.kind === "eci" || z.kind === "arena" || z.kind === "pct" || z.kind === "contra") ? verdict(a, b, z.kind, z) : null;
+    const costLine = a.cost_p50 != null ? `<span class="sub-note">Медиана задачи: $${money(a.cost_p50)}${rubApprox(a.cost_p50)}</span>` : "";
+    const sysLine = nonLlmTop ? `<span class="sub-note">Вне зачёта LLM: ${esc(nonLlmTop.m.name)} (${nf(nonLlmTop.v)} Elo — дизайн-система)</span>` : "";
+    const modeNote = a.mode ? modeTag(a.mode) : (z.kind === "eci" || z.kind === "contra" || z.own ? '<span class="tag" title="Источник не указывает единый режим рассуждения">режим не указан</span>' : "");
     return `<button type="button" class="lead" id="lead-${z.id}" data-z="${z.id}" aria-expanded="${openZ === z.id}" aria-controls="zachet">
       <span class="what">${esc(z.what)}</span>
-      <span class="who">${esc(a.m.name)}</span>
+      <span class="who-row"><span class="who">${esc(a.m.name)}</span>${modeNote}</span>
       <span class="org"><i class="dot" style="background:${color(a.m.org)}"></i>${esc(a.m.org)} ${FLAGS[a.m.cc] || ""}</span>
       <span class="val"><b>${zVal(z, a)}</b><span>${esc(z.unit)}</span></span>
+      ${costLine}${sysLine}
       ${v ? `<span class="verdict ${v.cls}">${esc(v.text)}</span>` : ""}
-      ${b ? `<span class="runner">Дальше: ${esc(b.m.name)} (${zVal(z, b)})${c ? `, ${esc(c.m.name)} (${zVal(z, c)})` : ""}</span>` : ""}
+      ${b ? `<span class="runner">Дальше: ${runnerItem(z, b)}${c ? `, ${runnerItem(z, c)}` : ""}</span>` : ""}
       ${z.own ? `<span class="pilot">Пилот за весь период · ${nf(list.length)} ${plural(list.length,"модель","модели","моделей")}${new Set(list.map(x=>x.n)).size===1 ? " · "+nf(a.n)+" работ" : ""}</span>` : ""}
-      <span class="open-all">${openZ === z.id ? "Свернуть зачёт" : `Весь зачёт · ${nf(list.length)} из ${nf(z.own ? D.models.length : models().length)}`}</span>
+      ${z.kind === "contra" ? `<span class="pilot">За весь период · ${nf(ranked.length)} ИИ-моделей</span>` : ""}
+      <span class="open-all">${openZ === z.id ? "Свернуть зачёт" : `Весь зачёт · ${nf(list.length)}${z.independent ? "" : " из " + nf(models().length)}`}</span>
     </button>`;
   }
   function renderLeaders() {
@@ -285,6 +342,7 @@
     if (!z) { box.hidden = true; box.innerHTML = ""; return; }
     const list = zachetList(z), shown = zAll ? list : list.slice(0, Z_LIMIT);
     const withCi = (z.kind === "eci" || z.kind === "arena" || z.kind === "pct") && shown.some((x) => x.lo != null);
+    const agentMode = z.kind === "arena" && isAgentSec(z.sec);
     // группы ничьих: модель в группе, пока её интервал пересекается с интервалом лидера группы
     const groups = [];
     for (const x of shown) {
@@ -293,26 +351,31 @@
     }
     const lo = Math.min(...shown.map((x) => x.lo ?? x.v)), hi = Math.max(...shown.map((x) => x.hi ?? x.v));
     const X = (v) => ((v - lo) / (hi - lo || 1)) * 100;
-    const top = list[0];
+    const top = z.kind === "contra" ? (list.find((x) => !x.nonLlm) || list[0]) : list[0];
     let place = 0, html = "";
     groups.forEach((g, gi) => {
       if (withCi && gi > 0) {
         const d = groups[gi - 1][0].v - g[0].v;
-        html += `<li class="z-gap">${z.kind === "arena" ? `Ступенька: ${pts(d)} — модели выше выбирают примерно в ${winOf(d)} из 100 сравнений` : z.kind === "pct" ? `Ступенька: ${nf(d * 100, 1)} п.п.` : `Ступенька: ${nf(d, 1)} по индексу`}</li>`;
+        html += `<li class="z-gap">${z.kind === "arena" ? (agentMode ? `Ступенька: ${pts(d)}` : `Ступенька: ${pts(d)} — модели выше выбирают примерно в ${winOf(d)} из 100 сравнений`) : z.kind === "pct" ? `Ступенька: ${nf(d * 100, 1)} п.п.` : `Ступенька: ${nf(d, 1)} по индексу`}</li>`;
       }
       if (withCi && g.length > 1) html += `<li class="z-group">${gi === 0 ? "Группа лидеров" : "Группа"} · близкие оценки у ${g.length} ${plural(g.length,"модели","моделей","моделей")}</li>`;
       for (const x of g) {
         place += 1;
         let note = "";
-        if (z.kind === "arena") note = x === top ? "лидер" : overlap(top, x) ? "интервал пересекается с лидером" : `лидера выбирают в ${winOf(top.v - x.v)} из 100`;
+        if (z.kind === "arena") {
+          note = x === top ? "лидер" : overlap(top, x) ? "интервал пересекается с лидером" : (agentMode ? `−${nf(top.v - x.v, 0)} к лидеру` : `лидера выбирают в ${winOf(top.v - x.v)} из 100`);
+          if (x.cost_p50 != null) note += ` · ~$${money(x.cost_p50)} / задача`;
+        }
+        else if (z.kind === "contra") note = (x.nonLlm ? "дизайн-система (не чат-модель)" : x === top ? "лидер среди ИИ-моделей" : `−${nf(top.v - x.v, 0)} к лидеру LLM`) + (x.win_rate != null ? ` · победы ${pctf(x.win_rate)}` : "") + (x.rubric != null ? ` · дизайн ${nf(x.rubric)}/100` : "");
         else if (z.kind === "eci") note = x === top ? "лидер" : overlap(top, x) ? "интервал пересекается с лидером" : `−${nf(top.v - x.v, 1)} к лидеру`;
         else if (z.kind === "pct") note = (x === top ? "лидер" : withCi && overlap(top, x) ? "интервал пересекается с лидером" : `−${nf((top.v - x.v) * 100, 1)} п.п. к лидеру`)
           + (z.own ? ` · точно ${x.exact}/${x.n}, в пределах 1 балла ${x.pm1}/${x.n} · ниже ${x.stricter}, выше ${x.softer}` : "");
         else if (z.kind === "cheap") note = `оценка ${Math.round(x.score * 100)}`;
-        else note = x.m.eci ? `тесты ${nf(x.m.eci.v, 1)}` : x.m.arena.text ? `Arena ${nf(x.m.arena.text.elo)}` : "";
+        else note = x.m.arena?.agent ? `агент ${nf(x.m.arena.agent.elo)}` : x.m.eci ? `тесты ${nf(x.m.eci.v, 1)}` : x.m.arena.text ? `Arena ${nf(x.m.arena.text.elo)}` : "";
+        const sampleWord = agentMode ? plural(x.votes, "сессия", "сессии", "сессий") : plural(x.votes, "голос", "голоса", "голосов");
         html += `<li class="z-row g${gi % 2}">
           <span class="z-n">${place}</span>
-          <span class="z-m"><b>${esc(x.m.name)}</b><span class="meta"><i class="dot" style="background:${color(x.m.org)}"></i> ${esc(x.m.org || "—")} ${FLAGS[x.m.cc] || ""}${x.votes ? ` · ${nf(x.votes)} ${plural(x.votes, "голос", "голоса", "голосов")}` : ""}</span></span>
+          <span class="z-m"><b>${esc(x.m.name)} ${x.mode ? modeTag(x.mode) : ""}${x.nonLlm ? '<span class="tag sys">дизайн-система</span>' : ""}</b><span class="meta"><i class="dot" style="background:${color(x.m.org)}"></i> ${esc(x.m.org || "—")} ${FLAGS[x.m.cc] || ""}${x.votes ? ` · ${nf(x.votes)} ${sampleWord}` : ""}${!x.mode && (z.kind === "eci" || z.kind === "contra" || z.own) ? " · режим не указан" : ""}</span></span>
           ${withCi && x.lo != null ? `<span class="z-ci" title="погрешность ${z.kind === "pct" ? `${pctf(x.lo)}–${pctf(x.hi)}` : `${nf(x.lo, z.kind === "eci" ? 1 : 0)}–${nf(x.hi, z.kind === "eci" ? 1 : 0)}`}"><i class="ci" style="left:${X(x.lo)}%;width:${Math.max(1, X(x.hi) - X(x.lo))}%"></i><i class="pt" style="left:${X(x.v)}%"></i></span>` : `<span class="z-ci"></span>`}
           <span class="z-v">${zVal(z, x)}</span>
           <span class="z-note">${esc(note)}</span>
@@ -332,7 +395,14 @@
     if (scroll) box.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 
-  const focusNames = {all:"Все показатели", photo:"Проверить фото решения", ege:"Оценить работу ЕГЭ", web:"Сделать учебную страницу"};
+  const focusNames = {all:"Все показатели", agent:"Агент и сложная работа", photo:"Проверить фото решения", ege:"Оценить работу ЕГЭ", web:"Сделать учебную страницу"};
+  const PAIR_PRESETS = [
+    ["claudefable52", "claudeopus55", "Fable 5.2 vs Opus 5.5"],
+    ["claudefable52", "gemini4neon", "Fable 5.2 vs Neon"],
+    ["claudeopus55", "gemini4neon", "Opus 5.5 vs Neon"],
+    ["claudefable52", "gpt62astra", "Fable 5.2 vs GPT-6.2 Astra"],
+    ["claudeopus55", "gpt62astra", "Opus 5.5 vs GPT-6.2 Astra"],
+  ];
   const freshRelease = m => ["epoch","epoch_benchmark"].includes(m.dsrc) ? m.date : null;
   const safeCount = value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : null;
   const usd = value => "$" + value.toLocaleString("ru-RU",{maximumFractionDigits:8});
@@ -342,6 +412,7 @@
     if (id === "eci") return "90% байесовский интервал";
     if (id === "ege") return "95% интервал Уилсона";
     if (TESTNAME[id]) return "≈95% по стандартной ошибке";
+    if (isAgentSec(id)) return "Интервал Agent Arena";
     return "Интервал Arena";
   };
 
@@ -382,11 +453,11 @@
     const fold = value => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
     const searchIndex = new Map(options.map(m=>[m.id,fold(m.name+" "+(m.org || "")+" "+(m.or || ""))]));
     const paramNames = ["a","b"];
-    const defaults = ["gpt62astra","gemini4neon"];
+    const defaults = ["claudefable52","gemini4neon"];
     const result = $("#pairResult");
     const variantChoices = new Map();
     for (const [key,value] of params) {
-      if (/^mode_[01]_[a-z]+$/.test(key) && value.length <= 250) variantChoices.set(key,value);
+      if (/^mode_[01]_[a-z_]+$/.test(key) && value.length <= 250) variantChoices.set(key,value);
     }
     let focus = Object.hasOwn(focusNames,params.get("focus")) ? params.get("focus") : "all";
     if (options.length < 2) {
@@ -474,6 +545,18 @@
     function renderPair() {
       const pair = selected();
       selects.forEach((select,i) => filterPicker(i,pair[i].id));
+      const presets = $("#pairPresets");
+      if (presets) {
+        presets.innerHTML = PAIR_PRESETS.filter(([a,b]) => byId.has(a) && byId.has(b)).map(([a,b,label]) =>
+          `<button type="button" class="chip" data-a="${a}" data-b="${b}" aria-pressed="${pair[0].id===a && pair[1].id===b}">${esc(label)}</button>`).join("");
+        presets.onclick = (e) => {
+          const btn = e.target.closest("button[data-a]"); if (!btn) return;
+          variantChoices.clear();
+          searches.forEach((el) => { el.value = ""; });
+          filterPicker(0, btn.dataset.a); filterPicker(1, btn.dataset.b);
+          edited();
+        };
+      }
       $("#pairFocus").innerHTML = Object.entries(focusNames).map(([id,title]) =>
         '<button type="button" class="chip" data-focus="'+id+'" aria-pressed="'+(focus===id)+'">'+title+"</button>").join("");
       const body = [];
@@ -491,13 +574,15 @@
         if (id==="ege") return m.own?.ege;
         return m.bench?.[id] || m.arena?.[id];
       }
+      const identityOf = variant => variant.source_id || variant.source_label || variant.mode || "";
+      function chosenSample(id, i) {
+        const base = measures(id, pair[i]);
+        const choice = variantChoices.get("mode_"+i+"_"+id);
+        return choice && base?.variants?.find(v=>identityOf(v)===choice) || base;
+      }
       function measure(label,id){
         const bases=pair.map(m=>measures(id,m)), isArena=!!SECNAME[id];
-        const identity = variant => variant.source_id || variant.source_label || variant.mode || "";
-        const samples=bases.map((base,i) => {
-          const choice=variantChoices.get("mode_"+i+"_"+id);
-          return choice && base?.variants?.find(v=>identity(v)===choice) || base;
-        });
+        const samples=bases.map((_,i) => chosenSample(id, i));
         if (!samples.some(Boolean) && focus==="all") return;
         const key=isArena?"elo":"v";
         const format=isArena?v=>nf(v):id==="eci"?v=>nf(v,1):pctf;
@@ -506,18 +591,28 @@
         const notes="<small>"+nf(coverage)+" из "+nf(options.length)+"</small>" + (close?'<small class="pair-close">Интервалы пересекаются</small>':"");
         row(label,samples.map((o,i)=>{
           if(o?.[key]==null)return null;
-          const mode=o.mode ? "<small>Режим "+esc(o.mode)+"</small>" : "";
+          const mode=o.mode ? "<small>Режим "+esc(o.mode)+"</small>" : "<small>Режим не указан источником</small>";
           const range=o.lo!=null && o.hi!=null ? "<small>"+esc(intervalText(o,id))+" · "+format(o.lo)+"–"+format(o.hi)+"</small>" : "";
           const variants=(bases[i]?.variants||[]).filter(v=>v[key]!=null || v.v!=null);
           const controlKey="mode_"+i+"_"+id;
           const chosen=variantChoices.get(controlKey)||"";
           const more=variants.length>1 ? '<select class="pair-variant" data-variant="'+controlKey+'" aria-label="Режим '+esc(pair[i].name+" · "+label)+'"><option value="">Лучший замер</option>'+
-            variants.map(v=>'<option value="'+esc(identity(v))+'"'+(identity(v)===chosen?" selected":"")+'>'+esc(v.source_label||v.mode||"Источник")+" · "+format(v[key]??v.v)+"</option>").join("")+"</select>" : "";
+            variants.map(v=>'<option value="'+esc(identityOf(v))+'"'+(identityOf(v)===chosen?" selected":"")+'>'+esc(v.source_label||v.mode||"Источник")+" · "+format(v[key]??v.v)+(v.cost_p50!=null?" · $"+money(v.cost_p50):"")+"</option>").join("")+"</select>" : "";
           return "<b>"+format(o[key])+"</b>"+mode+range+more;
         }),notes);
       }
-      const topicTests = focus==="all"?TESTS:TESTS.filter(([id])=>focus==="ege"?id==="ege":focus==="photo"?id==="mathx":false);
-      const topicArena = focus==="all"?SECTIONS:SECTIONS.filter(([id])=>focus==="web"?["web","code"].includes(id):focus==="photo"?["vision","math"].includes(id):false);
+      const agentSecs = SECTIONS.filter(([id]) => isAgentSec(id));
+      const chatSecs = SECTIONS.filter(([id]) => !isAgentSec(id));
+      const topicAgent = focus==="all" || focus==="agent" ? agentSecs : focus==="web" ? agentSecs.filter(([id]) => id==="agent_code" || id==="agent") : [];
+      if (topicAgent.length) {
+        group("Agent Arena · реальная работа");
+        for (const [id, label] of topicAgent) measure(label, id);
+        const agentSamples = [0, 1].map((i) => chosenSample("agent", i));
+        conditionRow("Медианная цена задачи (Agent Arena)", agentSamples.map(s => s?.cost_p50 ?? null),
+          v => "<b>$" + money(v) + "</b>" + (rubApprox(v) ? "<small>" + esc(rubApprox(v).trim()) + "</small>" : ""));
+      }
+      const topicTests = focus==="all"?TESTS:TESTS.filter(([id])=>focus==="ege"?id==="ege":focus==="photo"?id==="mathx":focus==="agent"?(id==="eci"||id==="facts"):false);
+      const topicArena = focus==="all"?chatSecs:chatSecs.filter(([id])=>focus==="web"?["web","code"].includes(id):focus==="photo"?["vision_hw","vision","math"].includes(id):focus==="agent"?["web","ru"].includes(id):false);
       if(topicTests.length){
         group(focus==="ege"?"Пилот Fizmat Hero":"Тесты с проверяемым ответом");
         for(const [id,label] of topicTests) measure(label,id);
@@ -606,7 +701,7 @@
   }
 
   // ───────── таблица ─────────
-  const st = { q: "", sec: "text", tst: "eci", org: "", open: false, price: false, k: "eci", dir: -1, all: false };
+  const st = { q: "", sec: "agent", tst: "eci", org: "", open: false, price: false, k: "arena", dir: -1, all: false };
   const testOf = (m) => metric[st.tst]?.(m) ?? null;
   const testCell = (m) => {
     const v = testOf(m);
@@ -641,21 +736,24 @@
     const secVals = models().map((m) => m.arena[st.sec]?.elo).filter(Boolean);
     const sMax = Math.max(...secVals), sMin = secVals.sort((a, b) => a - b)[Math.floor(secVals.length * 0.05)] || 0;
     const built = new Date(D.built);
-    const label = "Arena · " + (SECNAME[st.sec] || "нет зачётов");
-    $("#arenaHead").textContent = "Люди · " + (SECNAME[st.sec] || "нет зачётов");
+    const agentSec = isAgentSec(st.sec);
+    const label = (agentSec ? "" : "Arena · ") + (SECNAME[st.sec] || "нет зачётов");
+    $("#arenaHead").textContent = (agentSec ? "" : "Люди · ") + (SECNAME[st.sec] || "нет зачётов");
     $("#testHead").textContent = "Тесты · " + (TESTNAME[st.tst] || "нет зачётов").split(" · ")[0];
     $("#rows").innerHTML = list.map((m, i) => {
       const a = m.arena[st.sec];
       const daysSince = freshRelease(m) ? (built - new Date(m.date)) / 864e5 : null;
       const isNew = daysSince != null && daysSince >= 0 && daysSince <= 30;
       const aW = a ? Math.max(4, Math.round(70 * Math.max(0, a.elo - sMin) / (sMax - sMin || 1))) : 0;
+      const unitW = agentSec ? "сессий" : "голосов";
+      const taskCost = a?.cost_p50 != null ? `<span>~$${money(a.cost_p50)} / задача</span>` : "";
       return `<tr>
         <td class="c-n mono muted">${i + 1}</td>
         <td class="c-m"><div class="mcell"><b>${esc(m.name)}</b><div class="meta"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org || "—")} ${FLAGS[m.cc] || ""}</span>${
           m.open ? '<span class="tag open">открытые веса</span>' : ""}${isNew ? '<span class="tag new">новинка</span>' : ""}${
-          a?.mode ? `<span>режим ${esc(a.mode)}</span>` : ""}</div></div></td>
+          a?.mode ? `<span class="tag mode" title="Режим рассуждения в выбранном зачёте Arena">${esc(a.mode)}</span>` : ""}${taskCost}</div></div></td>
         <td class="c-e r" data-label="${esc("Тесты · " + (TESTNAME[st.tst] || "нет зачётов"))}">${testCell(m)}</td>
-        <td class="c-a r" data-label="${esc(label)}">${a ? `<div class="score"><span class="meter"><i style="width:${aW}px"></i></span><b title="${nf(a.votes)} голосов, погрешность ${nf(a.lo)}–${nf(a.hi)}">${nf(a.elo)}</b><span class="rk">#${a.rank}</span>${deltaFor(st.sec, m.id)}</div>` : '<span class="na">нет в разделе</span>'}</td>
+        <td class="c-a r" data-label="${esc(label)}">${a ? `<div class="score"><span class="meter"><i style="width:${aW}px"></i></span><b title="${nf(a.votes)} ${unitW}, погрешность ${nf(a.lo)}–${nf(a.hi)}${a.mode ? ", режим " + esc(a.mode) : ""}">${nf(a.elo)}</b><span class="rk">#${a.rank}</span>${deltaFor(st.sec, m.id)}</div>` : '<span class="na">нет в разделе</span>'}</td>
         <td class="c-p r">${m.price ? `<span class="price">${money(m.price.in)} <small>/</small> ${money(m.price.out)}</span>` : '<span class="na">—</span>'}</td>
         <td class="c-d r muted"${m.dsrc === "arena" ? ' title="Примерно: день первого появления в Arena"' : ""}>${dayShort(freshRelease(m))}</td>
       </tr>`;
@@ -704,9 +802,9 @@
   // Выбор зрителя (общий для обоих графиков, запоминается в браузере):
   // pins — подписанные модели, only — скрыть остальные, orgs — оставить только этих разработчиков.
   const CS_KEY = "ai-rating-charts";
-  const CS = { pins: new Set(), only: false, orgs: new Set() };
-  try { const s = JSON.parse(localStorage.getItem(CS_KEY) || "{}"); CS.pins = new Set(s.pins || []); CS.only = !!s.only; CS.orgs = new Set(s.orgs || []); } catch (e) { /* без памяти */ }
-  const saveCS = () => { try { localStorage.setItem(CS_KEY, JSON.stringify({ pins: [...CS.pins], only: CS.only, orgs: [...CS.orgs] })); } catch (e) { /* без памяти */ } };
+  const CS = { pins: new Set(), only: false, orgs: new Set(), mode: "agent" };
+  try { const s = JSON.parse(localStorage.getItem(CS_KEY) || "{}"); CS.pins = new Set(s.pins || []); CS.only = !!s.only; CS.orgs = new Set(s.orgs || []); if (s.mode === "agent" || s.mode === "epoch") CS.mode = s.mode; } catch (e) { /* без памяти */ }
+  const saveCS = () => { try { localStorage.setItem(CS_KEY, JSON.stringify({ pins: [...CS.pins], only: CS.only, orgs: [...CS.orgs], mode: CS.mode })); } catch (e) { /* без памяти */ } };
   const orgKey = (m) => ORGC[m.org] ? m.org : "other";
   const visible = (m) => (!CS.orgs.size || CS.orgs.has(orgKey(m))) && (!CS.only || !CS.pins.size || CS.pins.has(m.id));
 
@@ -784,13 +882,18 @@
   }
 
   function renderChartTools() {
-    const inCharts = models().filter((m) => m.eci && (m.arena.text || blended(m) > 0));
+    const isAgent = CS.mode === "agent";
+    const inCharts = models().filter((m) => isAgent ? (m.arena.agent && (m.arena.text || m.arena.agent.cost_p50 > 0)) : (m.eci && (m.arena.text || blended(m) > 0)));
     const byId = new Map(D.models.map((m) => [m.id, m]));
     for (const id of [...CS.pins]) if (!byId.has(id)) CS.pins.delete(id);
     const orgs = Object.keys(ORGC).filter((o) => inCharts.some((m) => m.org === o));
     const box = $("#chartTools");
     box.innerHTML = `<div class="ct-row">
-        <div class="field ct-add"><label for="pinAdd">Подписать</label><input id="pinAdd" list="pinList" placeholder="Claude Opus 5.5, GPT-6.2 Sol…" autocomplete="off"></div>
+        <div class="ct-mode" role="group" aria-label="Режим графиков">
+          <button type="button" class="chip" data-cmode="agent" aria-pressed="${isAgent}">Agent Arena и цена задачи</button>
+          <button type="button" class="chip" data-cmode="epoch" aria-pressed="${!isAgent}">Тесты Epoch и цена токенов</button>
+        </div>
+        <div class="field ct-add"><label for="pinAdd">Подписать</label><input id="pinAdd" list="pinList" placeholder="Claude Fable 5.2, Gemini 4 Neon…" autocomplete="off"></div>
         <datalist id="pinList">${inCharts.map((m) => `<option value="${esc(m.name)}"></option>`).join("")}</datalist>
         <div class="field"><label for="periodCh">Вышли</label><select id="periodCh">${periodOptions()}</select></div>
         <label class="toggle" for="pinOnly"><input type="checkbox" id="pinOnly"${CS.only ? " checked" : ""}${CS.pins.size ? "" : " disabled"}>только подписанные</label>
@@ -800,6 +903,7 @@
       ${CS.pins.size ? `<div class="pins">${[...CS.pins].map((id) => byId.get(id)).filter(Boolean).map((m) => `<button type="button" class="pin" data-id="${esc(m.id)}" title="Убрать подпись"><i class="dot" style="background:${color(m.org)}"></i>${esc(m.name)}<span aria-hidden="true">×</span><span class="sr-only">убрать</span></button>`).join("")}</div>`
         : `<p class="ct-hint">Нажмите на точку, чтобы подписать модель, или найдите её в поле выше. Пока ничего не выбрано, подписаны самые заметные модели.</p>`}
       <div class="legend" role="group" aria-label="Разработчики">${[...orgs, "other"].map((o) => `<button type="button" class="org-chip" data-org="${esc(o)}" aria-pressed="${CS.orgs.has(o)}"><i class="dot" style="background:${color(o === "other" ? "" : o)}"></i>${esc(o === "other" ? "другие" : o)}</button>`).join("")}${CS.orgs.size ? `<span class="ct-note">показаны только выбранные разработчики</span>` : ""}</div>`;
+    box.querySelectorAll("button[data-cmode]").forEach((b) => b.onclick = () => { CS.mode = b.dataset.cmode; saveCS(); renderCharts(); });
     const add = $("#pinAdd");
     const tryAdd = (exact) => {
       const q = add.value.trim().toLowerCase(); if (!q) return;
@@ -808,7 +912,7 @@
       const other = D.models.find((x) => x.name.toLowerCase() === q) || (!exact && D.models.find((x) => x.name.toLowerCase().includes(q)));
       const msg = $("#pinMsg");
       msg.textContent = other && PERIOD && !isFresh(other) ? `${other.name} вышла раньше, чем за ${periodName()}, и скрыта. Выберите срок подлиннее или «все модели».` :
-        other ? `${other.name} нет на графиках: у модели пока нет индекса Epoch. Она есть в таблице выше.` : `Не нашёл «${add.value.trim()}». Попробуйте часть названия, например «Opus».`;
+        other ? `${other.name} нет на этом графике: у модели пока нет ${isAgent ? "замера Agent Arena" : "индекса Epoch"}. Она есть в таблице выше.` : `Не нашёл «${add.value.trim()}». Попробуйте часть названия, например «Neon».`;
       msg.hidden = false;
     };
     add.addEventListener("change", () => tryAdd(true));
@@ -822,8 +926,65 @@
     });
   }
 
+  function emptyScatter(svg, msg) {
+    svg.setAttribute("viewBox", "0 0 640 420");
+    svg.innerHTML = `<text x="320" y="210" text-anchor="middle">${esc(msg)}</text>`;
+    const tip = svg.closest(".chart")?.querySelector(".tip");
+    if (tip) tip.hidden = true;
+    svg.onmousemove = null; svg.onmouseleave = null; svg.onclick = null;
+  }
+
   function renderCharts() {
     renderChartTools();
+    const isAgent = CS.mode === "agent";
+    const frontOf = (list) => { const f = []; let best = -Infinity; [...list].sort((a, c) => a.x - c.x || c.y - a.y).forEach((p) => { if (p.y > best) { best = p.y; f.push(p); } }); return f; };
+    const fewMsg = "За этот период мало моделей с обоими замерами — выберите срок подлиннее";
+    if (isAgent) {
+      $("#sc1Title").textContent = "Агентная работа vs обычный чат";
+      $("#sc1Desc").textContent = "По горизонтали обычный чат Arena, по вертикали Agent Arena (многошаговые задачи). Выше линии — модели, которые особенно сильны в реальной работе.";
+      $("#sc2Title").textContent = "Сила агента и цена одной задачи";
+      $("#sc2Desc").textContent = "Медианная стоимость одной агентной задачи в долларах (лог. шкала, Agent Arena). Пунктир — самые выгодные модели: сильнее за эти деньги нет.";
+      const p1 = models().filter((m) => m.arena.agent && m.arena.text).map((m) => ({ m, x: m.arena.text.elo, y: m.arena.agent.elo }));
+      if (p1.length > 3) {
+        const xs = p1.map((p) => p.x), ys = p1.map((p) => p.y);
+        const x0 = Math.floor(Math.min(...xs) / 20) * 20 - 10, x1 = Math.ceil(Math.max(...xs) / 20) * 20 + 10;
+        const y0 = Math.floor(Math.min(...ys) / 50) * 50 - 20, y1 = Math.ceil(Math.max(...ys) / 50) * 50 + 20;
+        const mx = xs.reduce((a, b) => a + b) / xs.length, my = ys.reduce((a, b) => a + b) / ys.length;
+        const k = p1.reduce((a, p) => a + (p.x - mx) * (p.y - my), 0) / p1.reduce((a, p) => a + (p.x - mx) ** 2, 0), b = my - k * mx;
+        const resid = (p) => p.y - (k * p.x + b);
+        scatter($("#sc1"), p1, {
+          x0, x1, y0, y1, xl: "Обычный чат · Elo Arena", yl: "Агент · индекс Agent Arena",
+          auto: (pts) => [...new Set([
+            ...[...pts].sort((a, c) => c.y - a.y).slice(0, 5),
+            ...[...pts].sort((a, c) => c.x - a.x).slice(0, 3),
+            ...[...pts].sort((a, c) => resid(c) - resid(a)).slice(0, 2),
+          ])],
+          xt: niceTicks(x0, x1, 20).map((v) => ({ v, l: v })), yt: niceTicks(y0, y1, 50),
+          line: [[x0, k * x0 + b], [x1, k * x1 + b]],
+          tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Агент: ${nf(p.y)} (${esc(p.m.arena.agent.mode || "режим не указан")}) · Чат: ${nf(p.x)}`,
+        });
+      } else emptyScatter($("#sc1"), fewMsg);
+      const p2 = models().filter((m) => m.arena.agent && m.arena.agent.cost_p50 > 0).map((m) => ({ m, x: Math.log10(m.arena.agent.cost_p50), y: m.arena.agent.elo }));
+      if (p2.length > 3) {
+        const xs = p2.map((p) => p.x), ys = p2.map((p) => p.y);
+        const x0 = Math.floor(Math.min(...xs) * 2) / 2 - 0.1, x1 = Math.ceil(Math.max(...xs) * 2) / 2 + 0.1;
+        const y0 = Math.floor(Math.min(...ys) / 50) * 50 - 20, y1 = Math.ceil(Math.max(...ys) / 50) * 50 + 20;
+        const front = frontOf(p2);
+        const ticks = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20].filter((v) => Math.log10(v) >= x0 && Math.log10(v) <= x1);
+        scatter($("#sc2"), p2, {
+          x0, x1, y0, y1, xl: "Медианная цена задачи, $ (лог. шкала)", yl: "Агент · индекс Agent Arena",
+          auto: (pts) => [...new Set([...frontOf(pts).slice(-6).reverse(), ...[...pts].sort((a, c) => c.y - a.y).slice(0, 4)])],
+          xt: ticks.map((v) => ({ v: Math.log10(v), l: "$" + String(v).replace(".", ",") })), yt: niceTicks(y0, y1, 50),
+          line: front.map((p) => [p.x, p.y]),
+          tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)} · режим ${esc(p.m.arena.agent.mode || "не указан")}<br>Агент: ${nf(p.y)} (#${p.m.arena.agent.rank}) · ~$${money(p.m.arena.agent.cost_p50)} / задача${esc(rubApprox(p.m.arena.agent.cost_p50))}`,
+        });
+      } else emptyScatter($("#sc2"), fewMsg);
+      return;
+    }
+    $("#sc1Title").textContent = "Умная по тестам ≠ любимая людьми";
+    $("#sc1Desc").textContent = "По горизонтали индекс Epoch, по вертикали Elo в Arena. Выше линии — модели, которые людям нравятся больше, чем можно ждать по тестам.";
+    $("#sc2Title").textContent = "Сила и цена";
+    $("#sc2Desc").textContent = "Цена за 1 млн токенов (3 части входа на 1 часть выхода), шкала логарифмическая. Пунктир — самые выгодные модели: сильнее за эти деньги нет.";
     // 1. тесты × люди
     const p1 = models().filter((m) => m.eci && m.arena.text).map((m) => ({ m, x: m.eci.v, y: m.arena.text.elo }));
     if (p1.length > 3) {
@@ -843,16 +1004,15 @@
         ])],
         xt: niceTicks(x0, x1, 5).map((v) => ({ v, l: v })), yt: niceTicks(y0, y1, 20),
         line: [[x0, k * x0 + b], [x1, k * x1 + b]],
-        tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.x, 1)} · Arena: ${nf(p.y)} (#${p.m.arena.text.rank})`,
+        tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.x, 1)} · Arena: ${nf(p.y)} (#${p.m.arena.text.rank}, ${esc(p.m.arena.text.mode || "режим не указан")})`,
       });
-    }
+    } else emptyScatter($("#sc1"), fewMsg);
     // 2. сила × цена
     const p2 = models().filter((m) => m.eci && blended(m) > 0).map((m) => ({ m, x: Math.log10(blended(m)), y: m.eci.v }));
     if (p2.length > 3) {
       const xs = p2.map((p) => p.x), ys = p2.map((p) => p.y);
       const x0 = Math.floor(Math.min(...xs) * 2) / 2 - 0.1, x1 = Math.ceil(Math.max(...xs) * 2) / 2 + 0.1;
       const y0 = Math.floor(Math.min(...ys) / 10) * 10 - 2, y1 = Math.ceil(Math.max(...ys) / 10) * 10 + 2;
-      const frontOf = (list) => { const f = []; let best = -Infinity; [...list].sort((a, c) => a.x - c.x || c.y - a.y).forEach((p) => { if (p.y > best) { best = p.y; f.push(p); } }); return f; };
       const front = frontOf(p2);
       const ticks = [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100].filter((v) => Math.log10(v) >= x0 && Math.log10(v) <= x1);
       scatter($("#sc2"), p2, {
@@ -862,7 +1022,7 @@
         line: front.map((p) => [p.x, p.y]),
         tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.y, 1)} · $${money(10 ** p.x)} за 1 млн<br><span class="muted">вход $${money(p.m.price.in)}, выход $${money(p.m.price.out)}</span>`,
       });
-    }
+    } else emptyScatter($("#sc2"), fewMsg);
   }
 
   // ───────── статус ─────────

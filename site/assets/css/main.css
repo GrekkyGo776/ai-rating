@@ -196,6 +196,14 @@ tbody tr:hover td{background:rgba(58,107,255,.06)}
 .tag{font:500 .7rem/1 var(--mono);padding:3px 6px;border-radius:5px;border:1px solid var(--line-2);color:var(--muted)}
 .tag.open{color:var(--good);border-color:rgba(91,227,166,.35)}
 .tag.new{color:var(--gold);border-color:rgba(255,210,122,.35)}
+.tag.mode{color:var(--sky);border-color:rgba(147,178,255,.35)}
+.tag.sys{color:var(--gold);border-color:rgba(255,210,122,.35)}
+.lead .who-row{display:flex!important;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.lead .sub-note{font-size:.8rem;color:var(--muted)}
+.pair-presets{margin-bottom:10px}
+.pair-presets .chip{font-size:.86rem;padding:6px 12px}
+.ct-mode{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.ct-mode .chip{padding:6px 12px;font-size:.88rem}
 .score{display:flex;align-items:center;gap:10px;justify-content:flex-end}
 .score b{font:600 .98rem var(--mono);min-width:48px;text-align:right}
 .score .meter{width:70px}

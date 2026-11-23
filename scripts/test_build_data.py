@@ -78,6 +78,62 @@ class CatalogTest(unittest.TestCase):
         self.assertIsNone(first["max_output"])
         self.assertEqual(first["input_modalities"], ["text", "image"])
 
+    def test_arena_agent_sections_keep_modes_and_task_costs(self):
+        fake_tables = {
+            "agent": [
+                {"model_name": "Claude Opus 5.5 (Max)", "organization": "anthropic", "license": "proprietary",
+                 "score": 0.19, "score_ci_lower": 0.17, "score_ci_upper": 0.21, "session_count": 15162,
+                 "rank": 2, "category": "overall", "leaderboard_publish_date": "2026-11-22",
+                 "cost_per_task_p50": 5.791, "output_tokens_per_task_p50": 42100.4},
+                {"model_name": "Claude Opus 5.5 (High)", "organization": "anthropic", "license": "proprietary",
+                 "score": 0.14, "score_ci_lower": 0.13, "score_ci_upper": 0.15, "session_count": 24506,
+                 "rank": 8, "category": "overall", "leaderboard_publish_date": "2026-11-22",
+                 "cost_per_task_p50": 1.934, "output_tokens_per_task_p50": 14800.0},
+            ],
+            "agent_capability": [
+                {"model_name": "Claude Opus 5.5 (Max)", "organization": "anthropic", "license": "proprietary",
+                 "index_score": 1342.07, "index_score_ci_lower": 1315.37, "index_score_ci_upper": 1368.77,
+                 "session_count": 9709, "rank": 2, "category": "overall", "leaderboard_publish_date": "2026-11-22"},
+                {"model_name": "Claude Opus 5.5 (High)", "organization": "anthropic", "license": "proprietary",
+                 "index_score": 1275.25, "index_score_ci_lower": 1261.52, "index_score_ci_upper": 1288.98,
+                 "session_count": 18541, "rank": 7, "category": "overall", "leaderboard_publish_date": "2026-11-22"},
+            ],
+            "vision": [
+                {"model_name": "Claude Opus 5.5 (High)", "organization": "anthropic", "license": "proprietary",
+                 "rating": 1362.79, "rating_lower": 1341.39, "rating_upper": 1384.20,
+                 "vote_count": 842, "rank": 1, "category": "homework", "leaderboard_publish_date": "2026-11-19"},
+            ],
+        }
+        sections = [("agent", "agent_capability", "overall"), ("vision_hw", "vision", "homework")]
+        with patch.object(build, "ARENA_SECTIONS", sections), \
+             patch.object(build, "_arena_rows_parquet", side_effect=lambda sub: fake_tables[sub]):
+            arena = build.fetch_arena()
+        self.assertEqual(arena["published"], "2026-11-22")
+        self.assertEqual(arena["sections"]["agent"][0]["cost_p50"], 5.79)
+        self.assertEqual(arena["sections"]["agent"][0]["tokens_p50"], 42100)
+        self.assertEqual(arena["sections"]["agent"][1]["cost_p50"], 1.93)
+        self.assertEqual(arena["sections"]["vision_hw"][0]["elo"], 1362.8)
+
+        with tempfile.TemporaryDirectory() as folder:
+            cache = Path(folder) / "cache"
+            out = Path(folder) / "out"
+            cache.mkdir()
+            for name, payload in {
+                "arena": arena,
+                "arena_history": {"first_seen": {}, "snaps": {}},
+                "epoch": {"models": [], "bench": {}},
+                "openrouter": {"models": []},
+            }.items():
+                build.save_json(cache / f"{name}.json", payload)
+            with patch.multiple(build, CACHE=cache, OUT=out, OWN=Path(folder) / "own.json"):
+                rows = {row["name"]: row for row in build.merge()["models"]}
+        opus = rows["Claude Opus 5.5"]
+        self.assertEqual(opus["arena"]["agent"]["mode"], "Max")
+        self.assertEqual(opus["arena"]["agent"]["cost_p50"], 5.79)
+        self.assertEqual([v["mode"] for v in opus["arena"]["agent"]["variants"]], ["Max", "High"])
+        self.assertEqual([v["cost_p50"] for v in opus["arena"]["agent"]["variants"]], [5.79, 1.93])
+        self.assertEqual(opus["arena"]["vision_hw"]["elo"], 1362.8)
+
 
 if __name__ == "__main__":
     unittest.main()

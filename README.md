@@ -6,7 +6,7 @@
 
 | Источник | Что берём | Публикация |
 |---|---|---|
-| [Arena leaderboard dataset](https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset) | Elo по разделам: общий, русский, математика, код, творческие тексты, сложные запросы, веб-разработка, зрение | CC BY 4.0 |
+| [Arena leaderboard dataset](https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset) | Agent Arena (общий зачёт, рабочие задачи, код, доведение до результата и медианная цена задачи `cost_per_task_p50`), а также Elo по разделам: общий чат, русский, математика, код, творческие тексты, сложные запросы, веб-разработка, зрение, домашки по фото (`vision/homework`) и документы | CC BY 4.0 |
 | [Epoch AI](https://epoch.ai/benchmarks) | ECI, предметные тесты, режимы, интервалы и даты | CC BY 4.0 |
 | [OpenRouter](https://openrouter.ai/models) | базовые и ступенчатые тарифы, типы входа, контекст и предел ответа | публичный API |
 | [Contra Labs](https://contralabs.com/frontierdesign/leaderboard) | Elo, голоса, доля побед и оценки веб-дизайна | Frontier Design Benchmark |

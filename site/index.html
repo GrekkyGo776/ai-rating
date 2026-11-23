@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#05070f">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/golos-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=11">
+<link rel="stylesheet" href="assets/css/main.css?v=12">
 </head>
 <body>
 
@@ -27,7 +27,7 @@
   <div class="wrap">
     <div class="eyebrow">Обновляется каждый день</div>
     <h1 id="h1">Рейтинг <em>нейросетей</em></h1>
-    <p class="lede">Какая модель сильнее по тестам, какую выбирают люди в слепых сравнениях и сколько она стоит. Только открытые данные, со ссылками на источники.</p>
+    <p class="lede">Какая модель лучше справляется с реальной многошаговой работой, сильнее по тестам и нравится людям в слепых сравнениях. Только открытые данные со ссылками на источники.</p>
     <div class="status" id="status"><span class="pill">Загружаю данные…</span></div>
     <div class="period" id="period"></div>
     <a class="compare-link" href="#compare">Сравнить свои модели</a>
@@ -39,7 +39,7 @@
     <div class="sec-head">
       <div class="eyebrow">Сегодня</div>
       <h2 id="h-leaders">Кто впереди <em>в каждом зачёте</em></h2>
-      <p>Показываем зачёт, если в нём есть результаты актуальных Claude, GPT и Gemini за выбранный период. Для пилота ЕГЭ показываем все проверенные модели. Нажмите на карточку — откроется весь зачёт с интервалами и числом участников.</p>
+      <p>Показываем зачёт, если в нём есть результаты актуальных Claude, GPT и Gemini за выбранный период. Для веб-дизайна Contra и пилота ЕГЭ показываем все проверенные модели. Нажмите на карточку — откроется весь зачёт с интервалами и числом участников.</p>
     </div>
     <div id="leaderGrid"><div class="loading">Загружаю…</div></div>
   </div></section>
@@ -47,8 +47,9 @@
   <section class="band" id="compare" aria-labelledby="h-compare"><div class="wrap">
     <div class="sec-head">
       <h2 id="h-compare">Сравнить <em>две модели</em></h2>
-      <p>Выберите модели и задачу. Ссылку на эту пару можно отправить коллеге.</p>
+      <p>Выберите модели и задачу — или нажмите на готовую пару ниже. Ссылку на сравнение можно отправить коллеге.</p>
     </div>
+    <div class="tasks pair-presets" id="pairPresets" role="group" aria-label="Популярные пары"></div>
     <div class="tasks pair-focus" id="pairFocus" role="group" aria-label="Задача сравнения"></div>
     <div class="pair-controls">
       <div class="pair-picker">
@@ -127,12 +128,12 @@
     </div>
     <div class="ctools" id="chartTools"></div>
     <div class="charts">
-      <figure class="chart" style="margin:0"><h3>Умная по тестам ≠ любимая людьми</h3>
-        <p>По горизонтали индекс Epoch, по вертикали Elo в Arena. Выше линии — модели, которые людям нравятся больше, чем можно ждать по тестам.</p>
-        <svg id="sc1" viewBox="0 0 640 420" role="img" aria-label="Индекс Epoch против Elo Arena"></svg></figure>
-      <figure class="chart" style="margin:0"><h3>Сила и цена</h3>
-        <p>Цена за 1 млн токенов (3 части входа на 1 часть выхода), шкала логарифмическая. Пунктир — самые выгодные модели: сильнее за эти деньги нет.</p>
-        <svg id="sc2" viewBox="0 0 640 420" role="img" aria-label="Индекс Epoch против цены"></svg></figure>
+      <figure class="chart" style="margin:0"><h3 id="sc1Title">Агентная работа vs обычный чат</h3>
+        <p id="sc1Desc">По горизонтали обычный чат Arena, по вертикали Agent Arena (многошаговые задачи). Выше линии — модели, которые особенно сильны в реальной работе.</p>
+        <svg id="sc1" viewBox="0 0 640 420" role="img" aria-label="Сравнение моделей по двум рейтингам"></svg></figure>
+      <figure class="chart" style="margin:0"><h3 id="sc2Title">Сила агента и цена одной задачи</h3>
+        <p id="sc2Desc">Медианная стоимость одной агентной задачи в долларах (лог. шкала, данные Agent Arena). Пунктир — самые выгодные модели: сильнее за эти деньги нет.</p>
+        <svg id="sc2" viewBox="0 0 640 420" role="img" aria-label="Качество против стоимости"></svg></figure>
     </div>
   </div></section>
 
@@ -142,7 +143,8 @@
       <h2 id="h-how">Как <em>считаем</em></h2>
     </div>
     <div class="how">
-      <article><h3>Тесты · индекс Epoch AI</h3><p>Epoch Capabilities Index сводит десятки сложных тестов (математика, код, наука, рассуждения) в одну шкалу. Чем выше, тем сильнее модель. Для ECI приведён 90%-й байесовский интервал оценки.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
+      <article><h3>Агенты · Agent Arena</h3><p>Реальные многошаговые сессии с файлами, кодом и инструментами — не короткие ответы в чате, а доведение рабочей задачи до результата. Показываем общий индекс, рабочие задачи, код, доведение задачи до конца и медианную стоимость одной задачи (cost_per_task_p50). Данные открытые, CC BY 4.0.</p><p><a href="https://arena.ai" target="_blank" rel="noopener">arena.ai</a></p></article>
+      <article><h3>Тесты · индекс Epoch AI</h3><p>Epoch Capabilities Index сводит десятки сложных тестов (математика, код, наука, рассуждения) в одну шкалу. Чем выше, тем сильнее модель. Для ECI приведён 90%-й байесовский интервал оценки; единый уровень рассуждения источник для ECI не указывает.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
       <article><h3>Люди · Arena</h3><p>Люди задают вопрос, видят ответы двух неизвестных моделей и выбирают лучший. Из сотен тысяч голосов считается рейтинг Elo. Берём вариант с поправкой на стиль: длинный и нарядный ответ не получает бонуса. Есть отдельные зачёты по русскому языку, математике, коду, сайтам и картинкам.</p><p><a href="https://arena.ai" target="_blank" rel="noopener">arena.ai</a></p></article>
       <article><h3>Цены · OpenRouter</h3><p>Базовые ставки API указаны в долларах за миллион входных и выходных токенов. Для сравнения берём смесь 3 : 1 — три части входа на одну часть выхода. В чат-приложениях с подпиской цены другие.</p><p><a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a></p></article>
       <article><h3>Физика, математика, наука, факты</h3><p>Отдельные тесты из архива Epoch AI: CritPt — задачи уровня научной работы по физике, FrontierMath — новые задачи от математиков, GPQA Diamond — вопросы по естественным наукам уровня аспиранта, SimpleQA Verified — короткие вопросы о фактах (как часто модель выдумывает). Балл — доля верных ответов. У CritPt погрешность не публикуется.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
@@ -162,6 +164,6 @@
   <div>Сделано на <a href="https://fizmat.guru">fizmat.guru</a> · <span id="built"></span></div>
 </div></footer>
 
-<script src="assets/js/app.js?v=14" defer></script>
+<script src="assets/js/app.js?v=15" defer></script>
 </body>
 </html>
