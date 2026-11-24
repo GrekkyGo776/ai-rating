@@ -692,6 +692,7 @@ def merge(status: dict | None = None) -> dict:
                 "v": round(p, 4), "lo": round(c - h, 4), "hi": round(c + h, 4), "n": n, "exact": ex,
                 "pm1": r.get("pm1"), "stricter": r.get("stricter"), "softer": r.get("softer"),
                 "sum_ai": r.get("sum_ai"), "sum_exp": r.get("sum_exp"), "interval_type": "wilson_95",
+                "mode": r.get("mode") or "",
                 **({"cost_rub_per_100": measured_cost} if measured_cost is not None else {})}
 
     prices = {}

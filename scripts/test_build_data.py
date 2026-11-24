@@ -110,7 +110,8 @@ class CatalogTest(unittest.TestCase):
             ],
         }
         sections = [("agent", "agent_capability", "overall"), ("vision_hw", "vision", "homework"), ("web_react", "webdev", "webdev-react")]
-        with patch.object(build, "ARENA_SECTIONS", sections), \
+        with patch.dict("sys.modules", {"pyarrow": object()}), \
+             patch.object(build, "ARENA_SECTIONS", sections), \
              patch.object(build, "_arena_rows_parquet", side_effect=lambda sub: fake_tables[sub]):
             arena = build.fetch_arena()
         self.assertEqual(arena["published"], "2026-11-22")
@@ -155,6 +156,33 @@ class CatalogTest(unittest.TestCase):
         self.assertIn(",5.79,42100,9709,2026-11-22", csv_lines[1])
         self.assertTrue(sheet_lines[0].endswith(",web_react,web_react_mode,code_video,code_video_win,code_video_cost,code_video_mode"))
         self.assertIn(",1873.3,Max,1324.0,0.728,2.38,", sheet_lines[1])
+
+    def test_own_benchmarks_preserve_reasoning_mode(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cache = Path(folder) / "cache"
+            out = Path(folder) / "out"
+            own = Path(folder) / "own.json"
+            cache.mkdir()
+            for name, payload in {
+                "arena": {"published": "2026-11-22", "sections": {}},
+                "arena_history": {"first_seen": {}, "snaps": {}},
+                "epoch": {"models": [], "bench": {}},
+                "openrouter": {"models": []},
+            }.items():
+                build.save_json(cache / f"{name}.json", payload)
+            build.save_json(own, {
+                "ege": {
+                    "title": "Проверка ЕГЭ",
+                    "results": [
+                        {"model": "Claude Opus 5.5", "mode": "high", "n": 120, "exact": 97},
+                        {"model": "NoMode Model", "n": 120, "exact": 80},
+                    ],
+                }
+            })
+            with patch.multiple(build, CACHE=cache, OUT=out, OWN=own):
+                rows = {row["name"]: row for row in build.merge()["models"]}
+            self.assertEqual(rows["Claude Opus 5.5"]["own"]["ege"]["mode"], "high")
+            self.assertEqual(rows["NoMode Model"]["own"]["ege"]["mode"], "")
 
 
 if __name__ == "__main__":

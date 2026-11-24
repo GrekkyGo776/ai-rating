@@ -3,15 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Рейтинг нейросетей</title>
-<meta name="description" content="Какая нейросеть сильнее по тестам, какую выбирают люди вслепую и сколько она стоит. Arena, индекс Epoch AI и цены — каждый день по открытым данным.">
+<title>Рейтинг нейросетей · fizmat.guru</title>
+<meta name="description" content="Какая нейросеть сильнее по тестам, какую выбирают люди вслепую и сколько она стоит. Arena, индекс Epoch AI, Contra FrontierDesign, DesignArena и цены OpenRouter — каждый день по открытым данным.">
+<link rel="canonical" href="https://ai.fizmat.guru/">
 <meta property="og:title" content="Рейтинг нейросетей · fizmat.guru">
 <meta property="og:description" content="Тесты, слепые сравнения людей и цены на модели ИИ. Обновляется каждый день.">
 <meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:site_name" content="Рейтинг нейросетей · fizmat.guru">
+<meta property="og:url" content="https://ai.fizmat.guru/">
+<meta property="og:image" content="https://ai.fizmat.guru/assets/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Рейтинг нейросетей · fizmat.guru">
+<meta name="twitter:description" content="Тесты, слепые сравнения людей и цены на модели ИИ. Обновляется каждый день.">
+<meta name="twitter:image" content="https://ai.fizmat.guru/assets/img/og.png">
 <meta name="theme-color" content="#05070f">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/golos-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="assets/css/main.css?v=12">
+<link rel="stylesheet" href="assets/css/main.css?v=13">
 <script defer src="https://hero.fizmat.guru/pulse.js" data-site="ai-rating"></script>
 </head>
 <body>
@@ -75,7 +86,7 @@
       <label for="pairCached">Из входных токенов прочитано из кэша<input id="pairCached" type="number" inputmode="numeric" min="0" step="1" value="0"></label></div>
       <div id="pairQuote" aria-live="polite"></div>
     </details>
-    <p class="pair-sources"><a href="https://docs.google.com/spreadsheets/d/1tXCfGnqmar9f_wKnaKMUQHsFYEk4HBs5ea5dfverjUQ/edit#gid=297654181" target="_blank" rel="noopener">Интеллект и цена задачи в Artificial Analysis</a> · <a href="https://contralabs.com/frontierdesign/leaderboard" target="_blank" rel="noopener">Веб-дизайн в Contra</a></p>
+    <p class="pair-sources"><a href="https://contralabs.com/frontierdesign/leaderboard" target="_blank" rel="noopener">Веб-дизайн в Contra FrontierDesign</a> · <a href="https://www.designarena.ai/leaderboard" target="_blank" rel="noopener">Видео кодом в DesignArena</a></p>
   </div></section>
 
   <section class="band" id="pick" aria-labelledby="h-pick"><div class="wrap">
@@ -147,14 +158,15 @@
       <article><h3>Агенты · Agent Arena</h3><p>Реальные многошаговые сессии с файлами, кодом и инструментами — не короткие ответы в чате, а доведение рабочей задачи до результата. Показываем общий индекс, рабочие задачи, код, доведение задачи до конца и медианную стоимость одной задачи (cost_per_task_p50). Данные открытые, CC BY 4.0.</p><p><a href="https://arena.ai" target="_blank" rel="noopener">arena.ai</a></p></article>
       <article><h3>Тесты · индекс Epoch AI</h3><p>Epoch Capabilities Index сводит десятки сложных тестов (математика, код, наука, рассуждения) в одну шкалу. Чем выше, тем сильнее модель. Для ECI приведён 90%-й байесовский интервал оценки; единый уровень рассуждения источник для ECI не указывает.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
       <article><h3>Люди · Arena</h3><p>Люди задают вопрос, видят ответы двух неизвестных моделей и выбирают лучший. Из сотен тысяч голосов считается рейтинг Elo. Берём вариант с поправкой на стиль: длинный и нарядный ответ не получает бонуса. Есть отдельные зачёты по русскому языку, математике, коду, сайтам и картинкам.</p><p><a href="https://arena.ai" target="_blank" rel="noopener">arena.ai</a></p></article>
-      <article><h3>Цены · OpenRouter</h3><p>Базовые ставки API указаны в долларах за миллион входных и выходных токенов. Для сравнения берём смесь 3 : 1 — три части входа на одну часть выхода. В чат-приложениях с подпиской цены другие.</p><p><a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a></p></article>
+      <article><h3>Цены · OpenRouter и курс ЦБ РФ</h3><p>Базовые ставки API указаны в долларах за миллион входных и выходных токенов. Для сравнения берём смесь 3 : 1 — три части входа на одну часть выхода. В чат-приложениях с подпиской цены другие. Для пересчёта в рубли используем официальный ежедневный курс доллара ЦБ РФ.</p><p><a href="https://openrouter.ai/models" target="_blank" rel="noopener">openrouter.ai/models</a> · <a href="https://www.cbr.ru/currency_base/daily/" target="_blank" rel="noopener">cbr.ru (ЦБ РФ)</a></p></article>
       <article><h3>Физика, математика, наука, факты</h3><p>Отдельные тесты из архива Epoch AI: CritPt — задачи уровня научной работы по физике, FrontierMath — новые задачи от математиков, GPQA Diamond — вопросы по естественным наукам уровня аспиранта, SimpleQA Verified — короткие вопросы о фактах (как часто модель выдумывает). Балл — доля верных ответов. У CritPt погрешность не публикуется.</p><p><a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">epoch.ai/benchmarks</a></p></article>
+      <article><h3>Веб-дизайн · Contra FrontierDesign</h3><p>Профессиональные дизайнеры вслепую сравнивают готовые сайты, сделанные моделями по одному брифу (Frontier Design Benchmark). Показываем Elo, долю побед и оценку по критериям дизайна. Уровень рассуждения источник не публикует.</p><p><a href="https://contralabs.com/frontierdesign/leaderboard" target="_blank" rel="noopener">contralabs.com/frontierdesign/leaderboard</a></p></article>
       <article><h3>Видео и анимация кодом · DesignArena</h3><p>Слепые сравнения роликов, созданных кодом (Code to Video): агент пишет скрипт и рендерит анимацию, а зрители выбирают лучший ролик. Показываем Elo, долю побед и среднюю цену рендера одного ролика. Уровни рассуждения для большинства моделей источник не указывает.</p><p><a href="https://www.designarena.ai/leaderboard" target="_blank" rel="noopener">designarena.ai</a></p></article>
-      <article><h3>Проверка ЕГЭ — наш зачёт</h3><p>Модель проверяет решения второй части ЕГЭ по физике (21–26) по критериям ФИПИ, а мы сравниваем её балл с баллом эксперта. Публикуем только сводные цифры, без работ. Это пилот: замерены две модели, и регламент проверки настраивался на Claude Opus 5.5 — другим моделям он может подходить хуже. Погрешность — 95 % интервал для доли совпадений.</p></article>
+      <article><h3>Проверка ЕГЭ — наш зачёт</h3><p>Модель проверяет решения второй части ЕГЭ по физике (21–26) по критериям ФИПИ, а мы сравниваем её балл с баллом эксперта. Публикуем только сводные цифры, без работ. Это пилот: замерены две модели в режиме рассуждения high — Claude Opus 5.5 (<code>output_config.effort = high</code>) и GPT-6.2 Sol (<code>reasoning.effort = high</code>); регламент проверки настраивался на Claude Opus 5.5, другим моделям он может подходить хуже. Погрешность — 95 % интервал для доли совпадений.</p></article>
       <article><h3>Как читать разницу оценок</h3><p>Проценты от самого Elo ничего не значат: важна разница в очках. Разница 20 очков — лидера выбирают в 53 сравнениях из 100, 50 очков — в 57, 100 очков — в 64. Пересекающиеся интервалы отмечаем как близкие оценки. Доказательство равенства или различия моделей требует отдельного парного теста.</p></article>
       <article><h3>Какие зачёты показываем</h3><p>Для общих карточек лидеров и подбора учитываем наличие актуальных Claude, GPT и Gemini. Собственную проверку ЕГЭ показываем отдельно. Поколение определяем по старшему номеру версии в каталоге, для Claude — отдельно по линейкам Opus, Sonnet, Haiku и Fable. Место участника может быть любым. В парном сравнении и полной таблице доступны и профильные зачёты.</p></article>
       <article><h3>Актуальные модели</h3><p>По умолчанию показываем модели, вышедшие за последние 12 месяцев: старые почти никогда не попадают в верх рейтингов, а графики с ними загромождены. В шапке можно выбрать срок — 1, 3, 6, 12 месяцев или все модели. В период релиза попадают версии с датой выпуска из Epoch. Модели с неподтверждённой датой вынесены в режим «без даты». Дату добавления в OpenRouter и появления в Arena можно увидеть в сравнении.</p></article>
-      <article><h3>Режимы и названия</h3><p>У многих моделей есть режимы «думать дольше» (High, Max). В каждом зачёте показываем лучший доступный замер с указанием режима, когда его сообщает источник. В сравнении можно выбрать другую измеренную конфигурацию. Названия из разных источников сводятся автоматически, сложные случаи — вручную. Модели, которых нет в источнике, показаны с прочерком.</p></article>
+      <article><h3>Режимы и названия</h3><p>У многих моделей есть режимы «думать дольше» (High, Max). В каждом зачёте показываем лучший доступный замер с указанием уровня рассуждения; если источник его не публикует, явно пишем «уровень рассуждения не указан источником». В сравнении можно выбрать другую измеренную конфигурацию. Названия из разных источников сводятся автоматически, сложные случаи — вручную. Модели, которых нет в источнике, показаны с прочерком.</p></article>
       <article><h3>Подбор под задачу</h3><p>Каждый рейтинг переводим в шкалу от 0 до 100: лучшая модель — 100, слабые — около нуля. Потом складываем с весами задачи. Если у модели нет главного для задачи рейтинга, в подборку она не попадает.</p></article>
       <article><h3>Чего здесь нет</h3><p>Российских моделей (GigaChat, YandexGPT) в этих открытых рейтингах нет — их там просто не тестируют. Доступность из России и оплата российской картой тоже не учитываются.</p></article>
     </div>
@@ -162,10 +174,10 @@
 </main>
 
 <footer><div class="wrap">
-  <div>Данные: <a href="https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset" target="_blank" rel="noopener">Arena leaderboard dataset</a> (CC BY 4.0), <a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">Epoch AI, «Capabilities &amp; benchmarking»</a> (CC BY 4.0), <a href="https://openrouter.ai/models" target="_blank" rel="noopener">OpenRouter</a>. Сводные оценки и подбор под задачу сделаны fizmat.guru и не являются позицией авторов данных.</div>
+  <div>Данные: <a href="https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset" target="_blank" rel="noopener">Arena leaderboard dataset</a> (CC BY 4.0), <a href="https://epoch.ai/benchmarks" target="_blank" rel="noopener">Epoch AI, «Capabilities &amp; benchmarking»</a> (CC BY 4.0), <a href="https://openrouter.ai/models" target="_blank" rel="noopener">OpenRouter</a>, <a href="https://contralabs.com/frontierdesign/leaderboard" target="_blank" rel="noopener">Contra FrontierDesign</a>, <a href="https://www.designarena.ai/leaderboard" target="_blank" rel="noopener">DesignArena</a>, <a href="https://www.cbr.ru/currency_base/daily/" target="_blank" rel="noopener">ЦБ РФ</a>. Сводные оценки и подбор под задачу сделаны fizmat.guru и не являются позицией авторов данных.</div>
   <div>Сделано на <a href="https://fizmat.guru">fizmat.guru</a> · <span id="built"></span></div>
 </div></footer>
 
-<script src="assets/js/app.js?v=16" defer></script>
+<script src="assets/js/app.js?v=17" defer></script>
 </body>
 </html>
