@@ -193,10 +193,11 @@ tbody tr:hover td{background:rgba(58,107,255,.06)}
 .mcell{display:grid;gap:3px;min-width:0}
 .mcell b{font-weight:600}
 .meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:.8rem;color:var(--dim)}
-.tag{font:500 .7rem/1 var(--mono);padding:3px 6px;border-radius:5px;border:1px solid var(--line-2);color:var(--muted)}
+.tag{display:inline-block;font:500 .7rem/1.25 var(--mono);padding:3px 6px;border-radius:5px;border:1px solid var(--line-2);color:var(--muted)}
 .tag.open{color:var(--good);border-color:rgba(91,227,166,.35)}
 .tag.new{color:var(--gold);border-color:rgba(255,210,122,.35)}
 .tag.mode{color:var(--sky);border-color:rgba(147,178,255,.35)}
+.tag.nomode{color:var(--dim);border-color:var(--line);font-family:var(--sans);font-size:.72rem;font-weight:400}
 .tag.sys{color:var(--gold);border-color:rgba(255,210,122,.35)}
 .lead .who-row{display:flex!important;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .lead .sub-note{font-size:.8rem;color:var(--muted)}
@@ -204,7 +205,10 @@ tbody tr:hover td{background:rgba(58,107,255,.06)}
 .pair-presets .chip{font-size:.86rem;padding:6px 12px}
 .ct-mode{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .ct-mode .chip{padding:6px 12px;font-size:.88rem}
+.score-wrap{display:grid;gap:3px;justify-items:end}
 .score{display:flex;align-items:center;gap:10px;justify-content:flex-end}
+.score-mode{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.nomode-txt{font-size:.72rem;line-height:1.25;color:var(--dim)}
 .score b{font:600 .98rem var(--mono);min-width:48px;text-align:right}
 .score .meter{width:70px}
 .rk{font:500 .78rem var(--mono);color:var(--dim);min-width:42px;text-align:right}
@@ -230,7 +234,9 @@ tbody tr:hover td{background:rgba(58,107,255,.06)}
   tbody td.c-a::before{content:attr(data-label)}
   tbody td.c-p::before{content:"Цена за 1 млн токенов"}
   tbody td.c-p{grid-column:1/-1;text-align:left}
+  .score-wrap{justify-items:start}
   .score{justify-content:flex-start}
+  .score-mode{justify-content:flex-start}
   .score b{text-align:left;min-width:0}
   td.c-d{display:none}
 }

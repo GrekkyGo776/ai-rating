@@ -12,7 +12,10 @@
   ];
   const isAgentSec = (s) => typeof s === "string" && s.startsWith("agent");
   const isNonLlmContra = (m) => m.id === "gestalt" || m.org === "Gestalt";
-  const modeTag = (mode) => mode ? `<span class="tag mode" title="Уровень рассуждения">${esc(mode)}</span>` : "";
+  const NO_MODE_TEXT = "уровень рассуждения не указан источником";
+  const modeTag = (mode, showMissing = false) => mode
+    ? `<span class="tag mode" title="Уровень рассуждения">${esc(mode)}</span>`
+    : (showMissing ? `<span class="tag nomode" title="${NO_MODE_TEXT}">${NO_MODE_TEXT}</span>` : "");
   const rubApprox = (usdVal) => {
     const fx = D?.fx;
     if (usdVal == null || !Number.isFinite(fx?.usd_rub) || fx.usd_rub <= 0) return "";
@@ -181,12 +184,13 @@
     }
     const taskMode = (tid, m) => {
       if (tid === "agent") return m.arena?.agent?.mode || "";
-      if (tid === "video") return m.code_video?.mode || "";
+      if (tid === "video") return m.code_video?.mode || m.arena?.web_react?.mode || m.arena?.agent_code?.mode || "";
       if (tid === "photo") return m.arena?.vision_hw?.mode || m.arena?.vision?.mode || "";
       if (tid === "code") return m.arena?.web?.mode || m.arena?.agent_code?.mode || m.arena?.code?.mode || "";
-      if (tid === "physics") return m.bench?.physics?.mode || "";
-      if (tid === "study" || tid === "texts") return m.arena?.ru?.mode || "";
-      return m.arena?.text?.mode || "";
+      if (tid === "physics") return m.bench?.physics?.mode || m.bench?.mathx?.mode || m.bench?.science?.mode || "";
+      if (tid === "study") return m.arena?.ru?.mode || m.arena?.math?.mode || "";
+      if (tid === "texts") return m.arena?.ru?.mode || m.arena?.creative?.mode || "";
+      return m.arena?.text?.mode || m.eci?.mode || "";
     };
     const ranked = rankings.get(t.id).sort((a, b) => b.r.score - a.r.score).slice(0, 5);
     $("#podium").innerHTML = ranked.map(({ m, r }, i) => {
@@ -195,7 +199,7 @@
         : t.id === "video" && m.code_video?.cost != null ? `<span>~$${money(m.code_video.cost)} / ролик</span>` : "";
       return `<li>
       <span class="n">${i + 1}</span>
-      <div class="nm"><b>${esc(m.name)} ${modeTag(pm)}</b><div class="why"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org)}</span>${
+      <div class="nm"><b>${esc(m.name)} ${modeTag(pm, true)}</b><div class="why"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org)}</span>${
         Object.entries(r.parts).map(([k, v]) => `<span>${esc(k === "quality" ? "качество" : k === "cheap" ? "цена" : MLABEL[k])} ${Math.round(v * 100)}</span>`).join("")}${
         costNote}${t.id === "cheap" ? `<span>$${money(blended(m))}</span>` : ""}</div></div>
       <div class="sc"><b>${Math.round(r.score * 100)}</b><span class="meter"><i style="width:${Math.round(r.score * 100)}%"></i></span></div>
@@ -295,14 +299,14 @@
     if (z.kind === "cheap") {
       const t = TASKS.find((x) => x.id === "cheap");
       return models().map((m) => ({ m, r: taskScore(t, m) })).filter((x) => x.r).sort((a, b) => b.r.score - a.r.score)
-        .map((x) => ({ m: x.m, v: blended(x.m), score: x.r.score, mode: "" }));
+        .map((x) => ({ m: x.m, v: blended(x.m), score: x.r.score, mode: x.m.arena?.text?.mode || x.m.eci?.mode || "" }));
     }
     return models().filter((m) => freshRelease(m) && (m.eci || m.arena.agent || (m.arena.text && m.arena.text.rank <= 60)))
-      .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date, mode: "" }));
+      .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date, mode: m.arena?.agent?.mode || m.arena?.text?.mode || m.eci?.mode || "" }));
   }
   const pctf = (v) => `${nf(v * 100, 1)} %`;
   const zVal = (z, x) => z.kind === "eci" ? nf(x.v, 1) : z.kind === "pct" ? pctf(x.v) : (z.kind === "arena" || z.kind === "contra" || z.kind === "designarena") ? nf(x.v, 0) : z.kind === "cheap" ? "$" + money(x.v) : dayLong(x.v);
-  const runnerItem = (z, x) => `${esc(x.m.name)}${x.mode ? ` · ${esc(x.mode)}` : ""} — ${zVal(z, x)}`;
+  const runnerItem = (z, x) => `${esc(x.m.name)} · ${x.mode ? esc(x.mode) : NO_MODE_TEXT} — ${zVal(z, x)}`;
 
   let openZ = null;
   function leaderCard(z) {
@@ -316,7 +320,7 @@
     const costLabel = z.kind === "designarena" ? "Средняя цена ролика" : "Медиана задачи";
     const costLine = a.cost_p50 != null ? `<span class="sub-note">${costLabel}: $${money(a.cost_p50)}${rubApprox(a.cost_p50)}</span>` : "";
     const sysLine = nonLlmTop ? `<span class="sub-note">Вне зачёта LLM: ${esc(nonLlmTop.m.name)} (${nf(nonLlmTop.v)} Elo — дизайн-система)</span>` : "";
-    const modeNote = a.mode ? modeTag(a.mode) : (z.kind === "eci" || z.kind === "contra" || z.kind === "designarena" || z.own ? '<span class="tag" title="Источник не указывает единый режим рассуждения">режим не указан</span>' : "");
+    const modeNote = modeTag(a.mode, true);
     return `<button type="button" class="lead" id="lead-${z.id}" data-z="${z.id}" aria-expanded="${openZ === z.id}" aria-controls="zachet">
       <span class="what">${esc(z.what)}</span>
       <span class="who-row"><span class="who">${esc(a.m.name)}</span>${modeNote}</span>
@@ -389,7 +393,7 @@
         const sampleWord = agentMode ? plural(x.votes, "сессия", "сессии", "сессий") : z.kind === "designarena" ? plural(x.votes, "сравнение", "сравнения", "сравнений") : plural(x.votes, "голос", "голоса", "голосов");
         html += `<li class="z-row g${gi % 2}">
           <span class="z-n">${place}</span>
-          <span class="z-m"><b>${esc(x.m.name)} ${x.mode ? modeTag(x.mode) : ""}${x.nonLlm ? '<span class="tag sys">дизайн-система</span>' : ""}</b><span class="meta"><i class="dot" style="background:${color(x.m.org)}"></i> ${esc(x.m.org || "—")} ${FLAGS[x.m.cc] || ""}${x.votes ? ` · ${nf(x.votes)} ${sampleWord}` : ""}${!x.mode && (z.kind === "eci" || z.kind === "contra" || z.kind === "designarena" || z.own) ? " · режим не указан" : ""}</span></span>
+          <span class="z-m"><b>${esc(x.m.name)} ${x.mode ? modeTag(x.mode) : ""}${x.nonLlm ? '<span class="tag sys">дизайн-система</span>' : ""}</b><span class="meta"><i class="dot" style="background:${color(x.m.org)}"></i> ${esc(x.m.org || "—")} ${FLAGS[x.m.cc] || ""}${x.votes ? ` · ${nf(x.votes)} ${sampleWord}` : ""}${!x.mode && !x.nonLlm ? ` · ${NO_MODE_TEXT}` : ""}</span></span>
           ${withCi && x.lo != null ? `<span class="z-ci" title="погрешность ${z.kind === "pct" ? `${pctf(x.lo)}–${pctf(x.hi)}` : `${nf(x.lo, z.kind === "eci" ? 1 : 0)}–${nf(x.hi, z.kind === "eci" ? 1 : 0)}`}"><i class="ci" style="left:${X(x.lo)}%;width:${Math.max(1, X(x.hi) - X(x.lo))}%"></i><i class="pt" style="left:${X(x.v)}%"></i></span>` : `<span class="z-ci"></span>`}
           <span class="z-v">${zVal(z, x)}</span>
           <span class="z-note">${esc(note)}</span>
@@ -605,7 +609,7 @@
         const notes="<small>"+nf(coverage)+" из "+nf(options.length)+"</small>" + (close?'<small class="pair-close">Интервалы пересекаются</small>':"");
         row(label,samples.map((o,i)=>{
           if(o?.[key]==null)return null;
-          const mode=o.mode ? "<small>Режим "+esc(o.mode)+"</small>" : "<small>Режим не указан источником</small>";
+          const mode=o.mode ? "<small>Уровень рассуждения: "+esc(o.mode)+"</small>" : "<small>Уровень рассуждения не указан источником</small>";
           const range=o.lo!=null && o.hi!=null ? "<small>"+esc(intervalText(o,id))+" · "+format(o.lo)+"–"+format(o.hi)+"</small>" : "";
           const variants=(bases[i]?.variants||[]).filter(v=>v[key]!=null || v.v!=null);
           const controlKey="mode_"+i+"_"+id;
@@ -639,13 +643,13 @@
       if(topicArena.length){ group("Предпочтения участников Arena"); for(const [id,label] of topicArena) measure("Arena · "+label,id); }
       if (focus==="video" || (focus==="all" && pair.some(m=>m.code_video))){
         group("DesignArena · видео и анимация кодом");
-        row("Elo · Code to Video",pair.map(m=>m.code_video?.elo==null?null:"<b>"+nf(m.code_video.elo)+"</b><small>"+(m.code_video.mode?"Режим "+esc(m.code_video.mode):"Режим не указан источником")+"</small><small>"+nf(m.code_video.battles)+" сравнений</small>"));
+        row("Elo · Code to Video",pair.map(m=>m.code_video?.elo==null?null:"<b>"+nf(m.code_video.elo)+"</b><small>"+(m.code_video.mode?"Уровень рассуждения: "+esc(m.code_video.mode):"Уровень рассуждения не указан источником")+"</small><small>"+nf(m.code_video.battles)+" сравнений</small>"));
         row("Доля побед",pair.map(m=>m.code_video?.win_rate==null?null:pctf(m.code_video.win_rate)));
         conditionRow("Средняя цена рендера ролика",pair.map(m=>m.code_video?.cost),v=>"<b>$"+money(v)+"</b>"+(rubApprox(v)?"<small>"+esc(rubApprox(v).trim())+"</small>":""));
       }
       if (focus==="web" || (focus==="all" && pair.some(m=>m.contra))){
         group("Contra · веб-дизайн");
-        row("Elo в слепых сравнениях",pair.map(m=>m.contra?.elo==null?null:"<b>"+nf(m.contra.elo)+"</b><small>"+nf(m.contra.votes)+" голосов</small>"));
+        row("Elo в слепых сравнениях",pair.map(m=>m.contra?.elo==null?null:"<b>"+nf(m.contra.elo)+"</b><small>"+(m.contra.mode?"Уровень рассуждения: "+esc(m.contra.mode):"Уровень рассуждения не указан источником")+"</small><small>"+nf(m.contra.votes)+" голосов</small>"));
         row("Доля побед",pair.map(m=>m.contra?.win_rate==null?null:pctf(m.contra.win_rate)+(m.contra.win_lo!=null && m.contra.win_hi!=null?"<small>95% интервал · "+pctf(m.contra.win_lo)+"–"+pctf(m.contra.win_hi)+"</small>":"")));
         conditionRow("Оценка по критериям дизайна",pair.map(m=>m.contra?.rubric),x=>nf(x)+" / 100");
       }
@@ -729,8 +733,9 @@
     const w = Math.max(4, Math.round(70 * (NORM[st.tst] ? NORM[st.tst](v) : 0)));
     const o = st.tst === "eci" ? m.eci : st.tst === "ege" ? m.own.ege : m.bench[st.tst];
     const fmt = (x) => st.tst === "eci" ? nf(x, 1) : pctf(x);
-    const tip = (o.lo != null && o.hi != null ? intervalText(o,st.tst)+" "+fmt(o.lo)+"–"+fmt(o.hi) : "Интервал не опубликован")+(o.mode ? " · Режим "+o.mode : "");
-    return `<div class="score"><span class="meter"><i style="width:${w}px"></i></span><b title="${esc(tip)}">${fmt(v)}</b>${o.mode ? `<small class="muted">${esc(o.mode)}</small>` : ""}${st.tst === "eci" ? deltaFor("eci", m.id) : ""}</div>`;
+    const tip = (o.lo != null && o.hi != null ? intervalText(o,st.tst)+" "+fmt(o.lo)+"–"+fmt(o.hi) : "Интервал не опубликован")+(o.mode ? " · Уровень рассуждения: "+o.mode : " · "+NO_MODE_TEXT);
+    const modeRow = o.mode ? modeTag(o.mode) : `<span class="nomode-txt">${NO_MODE_TEXT}</span>`;
+    return `<div class="score-wrap"><div class="score"><span class="meter"><i style="width:${w}px"></i></span><b title="${esc(tip)}">${fmt(v)}</b>${st.tst === "eci" ? deltaFor("eci", m.id) : ""}</div><div class="score-mode">${modeRow}</div></div>`;
   };
   const LIMIT = 40;
   function sortVal(m) {
@@ -771,9 +776,9 @@
         <td class="c-n mono muted">${i + 1}</td>
         <td class="c-m"><div class="mcell"><b>${esc(m.name)}</b><div class="meta"><span><i class="dot" style="background:${color(m.org)}"></i> ${esc(m.org || "—")} ${FLAGS[m.cc] || ""}</span>${
           m.open ? '<span class="tag open">открытые веса</span>' : ""}${isNew ? '<span class="tag new">новинка</span>' : ""}${
-          a?.mode ? `<span class="tag mode" title="Режим рассуждения в выбранном зачёте Arena">${esc(a.mode)}</span>` : ""}${taskCost}</div></div></td>
+          taskCost}</div></div></td>
         <td class="c-e r" data-label="${esc("Тесты · " + (TESTNAME[st.tst] || "нет зачётов"))}">${testCell(m)}</td>
-        <td class="c-a r" data-label="${esc(label)}">${a ? `<div class="score"><span class="meter"><i style="width:${aW}px"></i></span><b title="${nf(a.votes)} ${unitW}, погрешность ${nf(a.lo)}–${nf(a.hi)}${a.mode ? ", режим " + esc(a.mode) : ""}">${nf(a.elo)}</b><span class="rk">#${a.rank}</span>${deltaFor(st.sec, m.id)}</div>` : '<span class="na">нет в разделе</span>'}</td>
+        <td class="c-a r" data-label="${esc(label)}">${a ? `<div class="score-wrap"><div class="score"><span class="meter"><i style="width:${aW}px"></i></span><b title="${nf(a.votes)} ${unitW}, погрешность ${nf(a.lo)}–${nf(a.hi)}, ${a.mode ? "уровень рассуждения: " + esc(a.mode) : NO_MODE_TEXT}">${nf(a.elo)}</b><span class="rk">#${a.rank}</span>${deltaFor(st.sec, m.id)}</div><div class="score-mode">${a.mode ? modeTag(a.mode) : `<span class="nomode-txt">${NO_MODE_TEXT}</span>`}</div></div>` : '<span class="na">нет в разделе</span>'}</td>
         <td class="c-p r">${m.price ? `<span class="price">${money(m.price.in)} <small>/</small> ${money(m.price.out)}</span>` : '<span class="na">—</span>'}</td>
         <td class="c-d r muted"${m.dsrc === "arena" ? ' title="Примерно: день первого появления в Arena"' : ""}>${dayShort(freshRelease(m))}</td>
       </tr>`;
@@ -981,7 +986,7 @@
           ])],
           xt: niceTicks(x0, x1, 20).map((v) => ({ v, l: v })), yt: niceTicks(y0, y1, 50),
           line: [[x0, k * x0 + b], [x1, k * x1 + b]],
-          tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Агент: ${nf(p.y)} (${esc(p.m.arena.agent.mode || "режим не указан")}) · Чат: ${nf(p.x)}`,
+          tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Агент: ${nf(p.y)} (${esc(p.m.arena.agent.mode || NO_MODE_TEXT)})<br>Чат: ${nf(p.x)} (${esc(p.m.arena.text.mode || NO_MODE_TEXT)})`,
         });
       } else emptyScatter($("#sc1"), fewMsg);
       const p2 = models().filter((m) => m.arena.agent && m.arena.agent.cost_p50 > 0).map((m) => ({ m, x: Math.log10(m.arena.agent.cost_p50), y: m.arena.agent.elo }));
@@ -996,7 +1001,7 @@
           auto: (pts) => [...new Set([...frontOf(pts).slice(-6).reverse(), ...[...pts].sort((a, c) => c.y - a.y).slice(0, 4)])],
           xt: ticks.map((v) => ({ v: Math.log10(v), l: "$" + String(v).replace(".", ",") })), yt: niceTicks(y0, y1, 50),
           line: front.map((p) => [p.x, p.y]),
-          tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)} · режим ${esc(p.m.arena.agent.mode || "не указан")}<br>Агент: ${nf(p.y)} (#${p.m.arena.agent.rank}) · ~$${money(p.m.arena.agent.cost_p50)} / задача${esc(rubApprox(p.m.arena.agent.cost_p50))}`,
+          tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)} · ${esc(p.m.arena.agent.mode ? "уровень рассуждения: " + p.m.arena.agent.mode : NO_MODE_TEXT)}<br>Агент: ${nf(p.y)} (#${p.m.arena.agent.rank}) · ~$${money(p.m.arena.agent.cost_p50)} / задача${esc(rubApprox(p.m.arena.agent.cost_p50))}`,
         });
       } else emptyScatter($("#sc2"), fewMsg);
       return;
@@ -1024,7 +1029,7 @@
         ])],
         xt: niceTicks(x0, x1, 5).map((v) => ({ v, l: v })), yt: niceTicks(y0, y1, 20),
         line: [[x0, k * x0 + b], [x1, k * x1 + b]],
-        tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.x, 1)} · Arena: ${nf(p.y)} (#${p.m.arena.text.rank}, ${esc(p.m.arena.text.mode || "режим не указан")})`,
+        tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.x, 1)} (${esc(p.m.eci.mode || NO_MODE_TEXT)})<br>Arena: ${nf(p.y)} (#${p.m.arena.text.rank}, ${esc(p.m.arena.text.mode || NO_MODE_TEXT)})`,
       });
     } else emptyScatter($("#sc1"), fewMsg);
     // 2. сила × цена
@@ -1040,7 +1045,7 @@
         auto: (pts) => frontOf(pts).slice(-7).reverse(),
         xt: ticks.map((v) => ({ v: Math.log10(v), l: "$" + String(v).replace(".", ",") })), yt: niceTicks(y0, y1, 10),
         line: front.map((p) => [p.x, p.y]),
-        tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.y, 1)} · $${money(10 ** p.x)} за 1 млн<br><span class="muted">вход $${money(p.m.price.in)}, выход $${money(p.m.price.out)}</span>`,
+        tip: (p) => `<b>${esc(p.m.name)}</b>${esc(p.m.org)}<br>Тесты: ${nf(p.y, 1)} (${esc(p.m.eci.mode || NO_MODE_TEXT)}) · $${money(10 ** p.x)} за 1 млн<br><span class="muted">вход $${money(p.m.price.in)}, выход $${money(p.m.price.out)}</span>`,
       });
     } else emptyScatter($("#sc2"), fewMsg);
   }
