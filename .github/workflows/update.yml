@@ -9,7 +9,6 @@ on:
     paths:
       - ".github/workflows/update.yml"
       - "scripts/build_data.py"
-      - "scripts/contra_data.py"
       - "config/*.json"
   workflow_dispatch: {}
 

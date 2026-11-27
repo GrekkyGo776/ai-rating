@@ -332,11 +332,6 @@ def fetch_cbr() -> dict:
             "source": "ЦБ РФ"}
 
 
-def fetch_contra_source() -> dict:
-    from contra_data import fetch_contra
-    return fetch_contra(http_get)
-
-
 def fetch_designarena() -> dict:
     """DesignArena · Code to Video (агент пишет код и рендерит видео/анимацию)."""
     raw = json.loads(http_get(DESIGNARENA_VIDEO, timeout=45).decode("utf-8"))
@@ -410,7 +405,7 @@ def fetch_arena_history() -> dict:
 
 
 FETCHERS = {"arena": fetch_arena, "arena_history": fetch_arena_history, "epoch": fetch_epoch,
-            "openrouter": fetch_openrouter, "cbr": fetch_cbr, "contra": fetch_contra_source,
+            "openrouter": fetch_openrouter, "cbr": fetch_cbr,
             "designarena": fetch_designarena}
 
 
@@ -571,7 +566,6 @@ def merge(status: dict | None = None) -> dict:
     orouter = json.loads((CACHE / "openrouter.json").read_text(encoding="utf-8"))
     hist_path = CACHE / "arena_history.json"
     ahist = json.loads(hist_path.read_text(encoding="utf-8")) if hist_path.exists() else {"first_seen": {}, "snaps": {}}
-    contra = optional_cache("contra")
     designarena = optional_cache("designarena")
     fx = optional_cache("cbr")
     first_seen = {}
@@ -645,13 +639,6 @@ def merge(status: dict | None = None) -> dict:
                                    hi=round(min(1, r["v"] + 1.96 * se), 4), interval_type="normal_95")
             add_measurement(m.setdefault("bench", {}), bid, measurement, "v")
 
-    for row in contra.get("models", []):
-        m = get(key(row["name"]))
-        m["contra"] = {k: v for k, v in row.items() if k not in ("name", "org")}
-        m["cname"] = row["name"]
-        if not m.get("org"):
-            m["org"] = org_name(row["org"])
-
     da_mode_re = re.compile(r"-(xhigh|max|high|medium|low)$", re.I)
     for row in designarena.get("models", []):
         raw_id = row.get("id") or ""
@@ -706,7 +693,7 @@ def merge(status: dict | None = None) -> dict:
     out = []
     for k, m in models.items():
         p = prices.get(k)
-        name = m.get("ename") or m.get("aname") or m.get("bname") or m.get("cname") or m["oname"]
+        name = m.get("ename") or m.get("aname") or m.get("bname") or m["oname"]
         dates = m.get("bench_dates", set())
         date = m.get("date") or (next(iter(dates)) if len(dates) == 1 else None)
         rec = {
@@ -724,7 +711,6 @@ def merge(status: dict | None = None) -> dict:
             "bench": m.get("bench") or {},
             "own": m.get("own") or {},
             "arena": m["arena"],
-            "contra": m.get("contra"),
             "code_video": m.get("code_video"),
             "price": {key: p.get(key) for key in ("in", "out", "cache_read", "cache_write", "tiers")} if p else None,
             "ctx": (p or {}).get("context"),
@@ -742,7 +728,7 @@ def merge(status: dict | None = None) -> dict:
     ))
     now = dt.datetime.now(MSK)
     caches = {"arena": arena, "arena_history": ahist, "epoch": epoch, "openrouter": orouter,
-              "contra": contra, "designarena": designarena, "cbr": fx}
+              "designarena": designarena, "cbr": fx}
     if status is None:
         previous = json.loads((OUT / "models.json").read_text("utf-8")) if (OUT / "models.json").exists() else {}
         status = {}
@@ -759,7 +745,6 @@ def merge(status: dict | None = None) -> dict:
             "arena": {"published": arena.get("published"), "url": f"https://huggingface.co/datasets/{HF_DATASET}"},
             "epoch": {"latest_model": epoch.get("latest_model_date"), "url": "https://epoch.ai/benchmarks"},
             "openrouter": {"url": "https://openrouter.ai/models"},
-            "contra": {"url": "https://contralabs.com/frontierdesign/leaderboard", "published": contra.get("published")},
             "designarena": {"url": "https://www.designarena.ai/leaderboard"},
             "cbr": {"url": CBR, "published": fx.get("date")},
         },
@@ -810,7 +795,7 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
     selected = []
     for m in models:
         ar = m.get("arena") or {}
-        has_special = bool(ar.get("agent") or m.get("contra") or m.get("code_video") or (m.get("own") or {}).get("ege"))
+        has_special = bool(ar.get("agent") or m.get("code_video") or (m.get("own") or {}).get("ege"))
         confirmed = m.get("dsrc") in ("epoch", "epoch_benchmark") and bool(m.get("date"))
         is_recent = confirmed and (not cutoff or m["date"] >= cutoff) and bool(ar or m.get("eci") or m.get("price"))
         if has_special or is_recent or m["id"] in top_ids:
@@ -837,7 +822,7 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
         "agent_work", "agent_work_mode", "agent_code", "agent_code_mode", "agent_outcome", "agent_outcome_mode",
         "text", "text_mode", "ru", "ru_mode", "math", "math_mode",
         "web", "web_mode", "vision", "vision_mode", "vision_hw", "vision_hw_mode",
-        "contra", "contra_win", "ege", "ege_n",
+        "contra", "contra_win", "ege", "ege_n",  # contra/contra_win оставлены пустыми для совместимости столбцов Google Таблицы
         "eci", "physics", "mathx", "facts", "bench_mode",
         "price_in", "price_out", "price_blend", "ctx", "usd_rub", "meta_dates",
         "web_react", "web_react_mode", "code_video", "code_video_win", "code_video_cost", "code_video_mode",
@@ -846,7 +831,6 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
         ar = m.get("arena") or {}
         ag = ar.get("agent") or {}
         b = m.get("bench") or {}
-        c = m.get("contra") or {}
         cv = m.get("code_video") or {}
         ege = (m.get("own") or {}).get("ege") or {}
         p = m.get("price") or {}
@@ -871,8 +855,7 @@ def write_sheet_csv(models: list[dict], result: dict) -> None:
             (ar.get("web") or {}).get("elo", ""), (ar.get("web") or {}).get("mode") or "",
             (ar.get("vision") or {}).get("elo", ""), (ar.get("vision") or {}).get("mode") or "",
             (ar.get("vision_hw") or {}).get("elo", ""), (ar.get("vision_hw") or {}).get("mode") or "",
-            c.get("elo") if c.get("elo") is not None else "",
-            c.get("win_rate") if c.get("win_rate") is not None else "",
+            "", "",
             ege.get("v") if ege.get("v") is not None else "",
             ege.get("n") if ege.get("n") is not None else "",
             (m.get("eci") or {}).get("v", ""),

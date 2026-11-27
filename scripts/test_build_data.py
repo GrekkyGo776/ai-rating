@@ -44,7 +44,6 @@ class CatalogTest(unittest.TestCase):
                     {"name": "Standalone (with fallback, max)", "v": 0.94, "se": 0.01, "date": "2026-09-01"},
                 ]}},
                 "openrouter": {"models": []},
-                "contra": {"models": [{"name": "Design only", "org": "Lab", "elo": 1800, "source_label": "Design only"}]},
             }
             for name, contents in data.items():
                 build.save_json(cache / (name + ".json"), contents)
@@ -59,7 +58,7 @@ class CatalogTest(unittest.TestCase):
             science = standalone["bench"]["science"]
             self.assertEqual(science["mode"], "with fallback, max")
             self.assertEqual([s["v"] for s in science["variants"]], [0.90, 0.94])
-            self.assertEqual(rows["Design only"]["contra"]["elo"], 1800)
+            self.assertNotIn("contra", snapshot)
 
     def test_openrouter_preserves_tiers_zero_prices_and_missing_limits(self):
         model = {"id": "vendor/alpha", "name": "Vendor: Alpha", "pricing": {

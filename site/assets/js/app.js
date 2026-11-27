@@ -11,7 +11,6 @@
     ["web_react", "React и Remotion"], ["vision", "Зрение: фото и схемы"], ["vision_hw", "Домашки по фото"], ["doc", "Документы и PDF"],
   ];
   const isAgentSec = (s) => typeof s === "string" && s.startsWith("agent");
-  const isNonLlmContra = (m) => m.id === "gestalt" || m.org === "Gestalt";
   const NO_MODE_TEXT = "уровень рассуждения не указан источником";
   const modeTag = (mode, showMissing = false) => mode
     ? `<span class="tag mode" title="Уровень рассуждения">${esc(mode)}</span>`
@@ -71,13 +70,13 @@
     code: (m) => m.arena.code?.elo ?? null, creative: (m) => m.arena.creative?.elo ?? null, hard: (m) => m.arena.hard?.elo ?? null,
     web: (m) => m.arena.web?.elo ?? null, web_react: (m) => m.arena.web_react?.elo ?? null,
     vision: (m) => m.arena.vision?.elo ?? null, vision_hw: (m) => m.arena.vision_hw?.elo ?? null,
-    doc: (m) => m.arena.doc?.elo ?? null, contra: (m) => m.contra?.elo ?? null, code_video: (m) => m.code_video?.elo ?? null,
+    doc: (m) => m.arena.doc?.elo ?? null, code_video: (m) => m.code_video?.elo ?? null,
     physics: (m) => m.bench?.physics?.v ?? null, mathx: (m) => m.bench?.mathx?.v ?? null,
     science: (m) => m.bench?.science?.v ?? null, facts: (m) => m.bench?.facts?.v ?? null, ege: (m) => m.own?.ege?.v ?? null,
   };
   const MLABEL = { eci: "тесты", agent: "агент", agent_work: "работа", agent_code: "агент-код", agent_outcome: "результат",
     text: "Arena", ru: "русский", math: "математика", code: "код", creative: "тексты", hard: "сложные", web: "веб", web_react: "React",
-    vision: "зрение", vision_hw: "домашки", doc: "документы", contra: "дизайн", code_video: "видео кодом",
+    vision: "зрение", vision_hw: "домашки", doc: "документы", code_video: "видео кодом",
     physics: "физика", mathx: "сложная мат.", science: "наука", facts: "факты", ege: "ЕГЭ" };
 
   // Поколения определяем по всему каталогу до применения фильтров.
@@ -220,7 +219,7 @@
     const d = a.v - b.v;
     if (overlap(a,b)) return {cls:"tie", text:"интервалы пересекаются"};
     if ([a.lo,a.hi,b.lo,b.hi].some(x => x == null)) {
-      const diff = kind === "pct" ? nf(100*d,1)+" п.п." : (kind === "contra" || kind === "designarena") ? pts(d) : nf(d,1);
+      const diff = kind === "pct" ? nf(100*d,1)+" п.п." : kind === "designarena" ? pts(d) : nf(d,1);
       return {cls:"na", text:"Разница "+diff+" · интервал не опубликован"};
     }
     if (kind === "eci") return { cls: d >= 5 ? "far" : "lead", text: `${d >= 5 ? "явный отрыв" : "отрыв"} ${nf(d, 1)}` };
@@ -238,7 +237,7 @@
     { id: "agents", title: "Агенты · реальная работа", sub: "многошаговые задачи, код и доведение до результата на Agent Arena" },
     { id: "tests", title: "Тесты", sub: "задачи с правильными ответами" },
     { id: "people", title: "Люди выбирают", sub: "слепые сравнения ответов на Arena" },
-    { id: "practice", title: "Практика", sub: "веб-дизайн, наш зачёт, деньги и новинки" },
+    { id: "practice", title: "Практика", sub: "видео кодом, наш зачёт, деньги и новинки" },
   ];
   const ZACHETS = [
     { id: "agent", g: "agents", what: "Агент · общий зачёт", unit: "индекс · Agent Arena", kind: "arena", sec: "agent",
@@ -277,8 +276,6 @@
       about: "Человек загружает документ — PDF, статью, учебник — и задаёт по нему вопрос. Слепой выбор лучшего ответа." },
     { id: "code_video", g: "practice", what: "Видео и анимация кодом", unit: "Elo · DesignArena", kind: "designarena", independent: true,
       about: "Агента просят сделать анимированный ролик (объясняющее видео, кинетическую типографику, графики) — модель пишет код и рендерит видео, а люди вслепую выбирают лучший результат (DesignArena · Code to Video). Уровень рассуждения для большинства моделей источник не указывает." },
-    { id: "contra", g: "practice", what: "Веб-дизайн · ИИ-модели", unit: "Elo · Contra Labs", kind: "contra", independent: true,
-      about: "Профессиональные дизайнеры вслепую сравнивают сайты, сделанные по одному брифу (Frontier Design Benchmark). На карточке показан лидер среди чат-моделей; специализированная дизайн-система Gestalt вынесена в сноску. Уровень рассуждения источник не публикует." },
     { id: "ege", g: "practice", what: "Проверка ЕГЭ по физике", unit: "совпадений с экспертом · fizmat.guru", kind: "pct", src: "own", own: true, independent: true,
       about: "Наш зачёт. Модель проверяет решения второй части ЕГЭ по физике (задания 21–26) по критериям ФИПИ, как эксперт на экзамене. Считаем, как часто её балл совпал с баллом настоящего эксперта." },
     { id: "cheap", g: "practice", what: "Выгоднее всех", unit: "за 1 млн токенов при сильном качестве", kind: "cheap",
@@ -292,8 +289,6 @@
       .map((m) => ({ m, ...m[z.src][z.id], mode: m[z.src][z.id].mode || "" }));
     if (z.kind === "arena") return models().filter((m) => m.arena[z.sec]).sort((a, b) => b.arena[z.sec].elo - a.arena[z.sec].elo)
       .map((m) => ({ m, v: m.arena[z.sec].elo, lo: m.arena[z.sec].lo, hi: m.arena[z.sec].hi, votes: m.arena[z.sec].votes, mode: m.arena[z.sec].mode || "", cost_p50: m.arena[z.sec].cost_p50 ?? null }));
-    if (z.kind === "contra") return D.models.filter((m) => m.contra?.elo != null).sort((a, b) => b.contra.elo - a.contra.elo)
-      .map((m) => ({ m, v: m.contra.elo, lo: null, hi: null, votes: m.contra.votes, win_rate: m.contra.win_rate, rubric: m.contra.rubric, mode: "", nonLlm: isNonLlmContra(m) }));
     if (z.kind === "designarena") return D.models.filter((m) => m.code_video?.elo != null).sort((a, b) => b.code_video.elo - a.code_video.elo)
       .map((m) => ({ m, v: m.code_video.elo, lo: null, hi: null, votes: m.code_video.battles, win_rate: m.code_video.win_rate, cost_p50: m.code_video.cost ?? null, mode: m.code_video.mode || "" }));
     if (z.kind === "cheap") {
@@ -305,32 +300,27 @@
       .sort((a, b) => b.date.localeCompare(a.date)).map((m) => ({ m, v: m.date, mode: m.arena?.agent?.mode || m.arena?.text?.mode || m.eci?.mode || "" }));
   }
   const pctf = (v) => `${nf(v * 100, 1)} %`;
-  const zVal = (z, x) => z.kind === "eci" ? nf(x.v, 1) : z.kind === "pct" ? pctf(x.v) : (z.kind === "arena" || z.kind === "contra" || z.kind === "designarena") ? nf(x.v, 0) : z.kind === "cheap" ? "$" + money(x.v) : dayLong(x.v);
+  const zVal = (z, x) => z.kind === "eci" ? nf(x.v, 1) : z.kind === "pct" ? pctf(x.v) : (z.kind === "arena" || z.kind === "designarena") ? nf(x.v, 0) : z.kind === "cheap" ? "$" + money(x.v) : dayLong(x.v);
   const runnerItem = (z, x) => `${esc(x.m.name)} · ${x.mode ? esc(x.mode) : NO_MODE_TEXT} — ${zVal(z, x)}`;
 
   let openZ = null;
   function leaderCard(z) {
     const list = zachetList(z);
     if (!list.length || (!z.independent && !coversFamilies(list.map(x => x.m)))) return "";
-    const ranked = z.kind === "contra" ? list.filter((x) => !x.nonLlm) : list;
-    const nonLlmTop = z.kind === "contra" ? list.find((x) => x.nonLlm) : null;
-    if (!ranked.length) return "";
-    const [a, b, c] = ranked;
-    const v = b && (z.kind === "eci" || z.kind === "arena" || z.kind === "pct" || z.kind === "contra" || z.kind === "designarena") ? verdict(a, b, z.kind, z) : null;
+    const [a, b, c] = list;
+    const v = b && (z.kind === "eci" || z.kind === "arena" || z.kind === "pct" || z.kind === "designarena") ? verdict(a, b, z.kind, z) : null;
     const costLabel = z.kind === "designarena" ? "Средняя цена ролика" : "Медиана задачи";
     const costLine = a.cost_p50 != null ? `<span class="sub-note">${costLabel}: $${money(a.cost_p50)}${rubApprox(a.cost_p50)}</span>` : "";
-    const sysLine = nonLlmTop ? `<span class="sub-note">Вне зачёта LLM: ${esc(nonLlmTop.m.name)} (${nf(nonLlmTop.v)} Elo — дизайн-система)</span>` : "";
     const modeNote = modeTag(a.mode, true);
     return `<button type="button" class="lead" id="lead-${z.id}" data-z="${z.id}" aria-expanded="${openZ === z.id}" aria-controls="zachet">
       <span class="what">${esc(z.what)}</span>
       <span class="who-row"><span class="who">${esc(a.m.name)}</span>${modeNote}</span>
       <span class="org"><i class="dot" style="background:${color(a.m.org)}"></i>${esc(a.m.org)} ${FLAGS[a.m.cc] || ""}</span>
       <span class="val"><b>${zVal(z, a)}</b><span>${esc(z.unit)}</span></span>
-      ${costLine}${sysLine}
+      ${costLine}
       ${v ? `<span class="verdict ${v.cls}">${esc(v.text)}</span>` : ""}
       ${b ? `<span class="runner">Дальше: ${runnerItem(z, b)}${c ? `, ${runnerItem(z, c)}` : ""}</span>` : ""}
       ${z.own ? `<span class="pilot">Пилот за весь период · ${nf(list.length)} ${plural(list.length,"модель","модели","моделей")}${new Set(list.map(x=>x.n)).size===1 ? " · "+nf(a.n)+" работ" : ""}</span>` : ""}
-      ${z.kind === "contra" ? `<span class="pilot">За весь период · ${nf(ranked.length)} ИИ-моделей</span>` : ""}
       <span class="open-all">${openZ === z.id ? "Свернуть зачёт" : `Весь зачёт · ${nf(list.length)}${z.independent ? "" : " из " + nf(models().length)}`}</span>
     </button>`;
   }
@@ -368,7 +358,7 @@
     }
     const lo = Math.min(...shown.map((x) => x.lo ?? x.v)), hi = Math.max(...shown.map((x) => x.hi ?? x.v));
     const X = (v) => ((v - lo) / (hi - lo || 1)) * 100;
-    const top = z.kind === "contra" ? (list.find((x) => !x.nonLlm) || list[0]) : list[0];
+    const top = list[0];
     let place = 0, html = "";
     groups.forEach((g, gi) => {
       if (withCi && gi > 0) {
@@ -383,7 +373,6 @@
           note = x === top ? "лидер" : overlap(top, x) ? "интервал пересекается с лидером" : (agentMode ? `−${nf(top.v - x.v, 0)} к лидеру` : `лидера выбирают в ${winOf(top.v - x.v)} из 100`);
           if (x.cost_p50 != null) note += ` · ~$${money(x.cost_p50)} / задача`;
         }
-        else if (z.kind === "contra") note = (x.nonLlm ? "дизайн-система (не чат-модель)" : x === top ? "лидер среди ИИ-моделей" : `−${nf(top.v - x.v, 0)} к лидеру LLM`) + (x.win_rate != null ? ` · победы ${pctf(x.win_rate)}` : "") + (x.rubric != null ? ` · дизайн ${nf(x.rubric)}/100` : "");
         else if (z.kind === "designarena") note = (x === top ? "лидер" : `−${nf(top.v - x.v, 0)} к лидеру`) + (x.win_rate != null ? ` · победы ${pctf(x.win_rate)}` : "") + (x.cost_p50 != null ? ` · ~$${money(x.cost_p50)} / ролик` : "");
         else if (z.kind === "eci") note = x === top ? "лидер" : overlap(top, x) ? "интервал пересекается с лидером" : `−${nf(top.v - x.v, 1)} к лидеру`;
         else if (z.kind === "pct") note = (x === top ? "лидер" : withCi && overlap(top, x) ? "интервал пересекается с лидером" : `−${nf((top.v - x.v) * 100, 1)} п.п. к лидеру`)
@@ -393,7 +382,7 @@
         const sampleWord = agentMode ? plural(x.votes, "сессия", "сессии", "сессий") : z.kind === "designarena" ? plural(x.votes, "сравнение", "сравнения", "сравнений") : plural(x.votes, "голос", "голоса", "голосов");
         html += `<li class="z-row g${gi % 2}">
           <span class="z-n">${place}</span>
-          <span class="z-m"><b>${esc(x.m.name)} ${x.mode ? modeTag(x.mode) : ""}${x.nonLlm ? '<span class="tag sys">дизайн-система</span>' : ""}</b><span class="meta"><i class="dot" style="background:${color(x.m.org)}"></i> ${esc(x.m.org || "—")} ${FLAGS[x.m.cc] || ""}${x.votes ? ` · ${nf(x.votes)} ${sampleWord}` : ""}${!x.mode && !x.nonLlm ? ` · ${NO_MODE_TEXT}` : ""}</span></span>
+          <span class="z-m"><b>${esc(x.m.name)} ${x.mode ? modeTag(x.mode) : ""}</b><span class="meta"><i class="dot" style="background:${color(x.m.org)}"></i> ${esc(x.m.org || "—")} ${FLAGS[x.m.cc] || ""}${x.votes ? ` · ${nf(x.votes)} ${sampleWord}` : ""}${!x.mode ? ` · ${NO_MODE_TEXT}` : ""}</span></span>
           ${withCi && x.lo != null ? `<span class="z-ci" title="погрешность ${z.kind === "pct" ? `${pctf(x.lo)}–${pctf(x.hi)}` : `${nf(x.lo, z.kind === "eci" ? 1 : 0)}–${nf(x.hi, z.kind === "eci" ? 1 : 0)}`}"><i class="ci" style="left:${X(x.lo)}%;width:${Math.max(1, X(x.hi) - X(x.lo))}%"></i><i class="pt" style="left:${X(x.v)}%"></i></span>` : `<span class="z-ci"></span>`}
           <span class="z-v">${zVal(z, x)}</span>
           <span class="z-note">${esc(note)}</span>
@@ -646,12 +635,6 @@
         row("Elo · Code to Video",pair.map(m=>m.code_video?.elo==null?null:"<b>"+nf(m.code_video.elo)+"</b><small>"+(m.code_video.mode?"Уровень рассуждения: "+esc(m.code_video.mode):"Уровень рассуждения не указан источником")+"</small><small>"+nf(m.code_video.battles)+" сравнений</small>"));
         row("Доля побед",pair.map(m=>m.code_video?.win_rate==null?null:pctf(m.code_video.win_rate)));
         conditionRow("Средняя цена рендера ролика",pair.map(m=>m.code_video?.cost),v=>"<b>$"+money(v)+"</b>"+(rubApprox(v)?"<small>"+esc(rubApprox(v).trim())+"</small>":""));
-      }
-      if (focus==="web" || (focus==="all" && pair.some(m=>m.contra))){
-        group("Contra · веб-дизайн");
-        row("Elo в слепых сравнениях",pair.map(m=>m.contra?.elo==null?null:"<b>"+nf(m.contra.elo)+"</b><small>"+(m.contra.mode?"Уровень рассуждения: "+esc(m.contra.mode):"Уровень рассуждения не указан источником")+"</small><small>"+nf(m.contra.votes)+" голосов</small>"));
-        row("Доля побед",pair.map(m=>m.contra?.win_rate==null?null:pctf(m.contra.win_rate)+(m.contra.win_lo!=null && m.contra.win_hi!=null?"<small>95% интервал · "+pctf(m.contra.win_lo)+"–"+pctf(m.contra.win_hi)+"</small>":"")));
-        conditionRow("Оценка по критериям дизайна",pair.map(m=>m.contra?.rubric),x=>nf(x)+" / 100");
       }
       group("Возможности и тарифы API");
       row("Форматы на входе",pair.map(m=>Array.isArray(m.input_modalities)?esc(m.input_modalities.map(x=>modalLabel[x]||x).join(", ")):null));
@@ -1062,7 +1045,7 @@
       pill(s.epoch?.ok !== false, `Epoch: модели по <b>${dayLong(src.epoch?.latest_model)}</b>${s.epoch?.ok === false ? " · не обновился" : ""}`),
       pill(s.openrouter?.ok !== false, `Цены: <b>OpenRouter</b>${s.openrouter?.ok === false ? " · не обновились" : ""}`),
     ].join("");
-    const sources = [["arena","Arena"],["epoch","Epoch"],["openrouter","OpenRouter"],["contra","Contra"],["designarena","DesignArena"],["cbr","ЦБ РФ"]];
+    const sources = [["arena","Arena"],["epoch","Epoch"],["openrouter","OpenRouter"],["designarena","DesignArena"],["cbr","ЦБ РФ"]];
     const sourceRows = sources.filter(([key])=>s[key] || src[key]).map(([key,name])=>{
       const meta=src[key]||{}, last=s[key]?.fetched || meta.fetched, count=meta.count;
       const timestamp=last ? new Date(last).toLocaleString("ru-RU",{timeZone:"Europe/Moscow",dateStyle:"short",timeStyle:"short"})+" МСК" : "не указана";
